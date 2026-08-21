@@ -1,121 +1,77 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { VideoDropTarget } from './components/VideoDropTarget.tsx'
+import { VideoPlayer } from './components/VideoPlayer.tsx'
+import type { VideoCredit } from './components/VideoPlayer.tsx'
+// Vite emits this as an asset and hands back its URL, so the fixture stays a
+// single LFS-tracked file rather than being copied into public/.
+import defaultClipUrl from '../fixtures/video/throw-02-field-release.mp4?url'
 import './App.css'
 
+interface Clip {
+  url: string
+  name: string
+  credit?: VideoCredit
+  /** Object URLs must be revoked; the bundled fixture URL must not be. */
+  isObjectUrl: boolean
+}
+
+const DEFAULT_CLIP: Clip = {
+  url: defaultClipUrl,
+  name: 'throw-02-field-release.mp4',
+  isObjectUrl: false,
+  credit: {
+    title: 'Eric Wu and Scott Schiller playing disc golf at DeLaveaga',
+    author: 'Scott Schiller',
+    licence: 'CC BY-SA 2.0',
+    licenceUrl: 'https://creativecommons.org/licenses/by-sa/2.0/',
+    sourceUrl:
+      'https://commons.wikimedia.org/wiki/File:Eric_Wu_and_Scott_Schiller_playing_disc_golf_at_DeLaveaga.webm',
+  },
+}
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [clip, setClip] = useState<Clip>(DEFAULT_CLIP)
+  const [isReplacing, setIsReplacing] = useState(false)
+  // Revoking in a cleanup keyed on `clip` would revoke the URL still in use on
+  // the very next render, so track the previous one explicitly instead.
+  const previousObjectUrl = useRef<string | null>(null)
+
+  const onFile = useCallback((file: File) => {
+    if (previousObjectUrl.current) URL.revokeObjectURL(previousObjectUrl.current)
+    const url = URL.createObjectURL(file)
+    previousObjectUrl.current = url
+    setClip({ url, name: file.name, isObjectUrl: true })
+    setIsReplacing(false)
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (previousObjectUrl.current) URL.revokeObjectURL(previousObjectUrl.current)
+    },
+    [],
+  )
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <main className="app">
+      <header className="app-header">
+        <h1>disctrac</h1>
+        <p>
+          Frame-by-frame review for disc golf throws.
+          {!clip.isObjectUrl && ' Showing the bundled sample clip.'}
+        </p>
+      </header>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      {isReplacing ? (
+        <VideoDropTarget onFile={onFile} onCancel={() => setIsReplacing(false)} />
+      ) : (
+        <VideoPlayer
+          src={clip.url}
+          name={clip.name}
+          credit={clip.credit}
+          onRequestReplace={() => setIsReplacing(true)}
+        />
+      )}
+    </main>
   )
 }
 

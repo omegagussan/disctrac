@@ -9,7 +9,12 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # The app imports a fixture from fixtures/ as a build-time asset, so the
+      # real video must be present — without this, checkout leaves a ~130-byte
+      # LFS pointer and the build silently bundles that as the video.
       - uses: actions/checkout@v7
+        with:
+          lfs: true
 
       - uses: actions/setup-node@v7
         with:
