@@ -11,9 +11,10 @@ export const DEFAULT_FPS = 30000 / 1001
 /**
  * Which frame is on screen at `time`.
  *
- * The epsilon matters: after seeking to a frame boundary, `currentTime` often
- * comes back a hair under it (0.0333329... for frame 1), and a bare floor would
- * report the previous frame and make stepping stall.
+ * The epsilon matters: `n / fps * fps` is not exactly `n` in binary floating
+ * point, so a time sitting on a frame boundary can multiply out a hair below the
+ * integer. A bare floor would then report frame n-1, and stepping forward would
+ * appear to do nothing.
  */
 export function frameAtTime(time: number, fps: number): number {
   return Math.max(0, Math.floor(time * fps + 1e-6))

@@ -8,6 +8,9 @@ import {
   frameCount,
   timeAtFrame,
 } from '../video/frames.ts'
+import { METRICS } from '../video/metric.ts'
+import { useDiscSelection } from '../video/useDiscSelection.ts'
+import { DiscPreview } from './DiscPreview.tsx'
 
 /**
  * `requestVideoFrameCallback` is how we learn which frame is actually on screen
@@ -51,6 +54,8 @@ export function VideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
   const [time, setTime] = useState(0)
+  const [isSelecting, setIsSelecting] = useState(false)
+  const selection = useDiscSelection(videoRef)
 
   const frame = frameAtTime(time, fps)
   const total = frameCount(duration, fps)
@@ -86,6 +91,20 @@ export function VideoPlayer({
     video.currentTime = Math.min(Math.max(ratio, 0), 1) * video.duration
   }, [])
 
+  const startSelecting = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    // Picking a colour is inherently about one frame, so hold still on it.
+    video.pause()
+    selection.refreshFrame()
+    setIsSelecting(true)
+  }, [selection])
+
+  const toggleSelecting = useCallback(() => {
+    if (isSelecting) setIsSelecting(false)
+    else startSelecting()
+  }, [isSelecting, startSelecting])
+
   // Track the presented frame. rVFC fires on every painted frame, including
   // after a seek while paused, which is exactly what frame stepping needs.
   useEffect(() => {
@@ -120,11 +139,30 @@ export function VideoPlayer({
           event.preventDefault()
           step(event.shiftKey ? 10 : 1)
           break
+        case 'd':
+        case 'D':
+          event.preventDefault()
+          toggleSelecting()
+          break
+        case 'Escape':
+          if (isSelecting) {
+            event.preventDefault()
+            setIsSelecting(false)
+          }
+          break
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [step, togglePlay])
+  }, [isSelecting, step, togglePlay, toggleSelecting])
+
+  const onStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    selection.sampleAt(
+      { x: event.clientX - rect.left, y: event.clientY - rect.top },
+      { width: rect.width, height: rect.height },
+    )
+  }
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const bar = barRef.current
@@ -149,6 +187,7 @@ export function VideoPlayer({
 
   return (
     <div className="player">
+      <div className={`player-workspace${isSelecting ? ' is-selecting' : ''}`}>
       <div className="player-stage">
         <video
           ref={videoRef}
@@ -164,10 +203,75 @@ export function VideoPlayer({
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
-          onSeeked={(event) => setTime(event.currentTarget.currentTime)}
+          onSeeked={(event) => {
+            setTime(event.currentTarget.currentTime)
+            // The captured frame is now stale.
+            if (isSelecting) selection.refreshFrame()
+          }}
           onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
         />
+
+        {isSelecting && (
+          <div
+            className="disc-overlay"
+            onPointerDown={onStagePointerDown}
+            role="presentation"
+            title="Click the disc to sample its colours"
+          />
+        )}
       </div>
+
+      {isSelecting && (
+        <DiscPreview
+          region={selection.result?.region ?? null}
+          model={selection.result?.model ?? null}
+          seedCount={selection.seedCount}
+        />
+      )}
+      </div>
+
+      {isSelecting && (
+        <div className="disc-toolbar">
+          <div className="disc-metric" role="group" aria-label="Colour matching">
+            {METRICS.map((option) => {
+              const isActive = selection.metric.name === option.name
+              return (
+                <button
+                  key={option.name}
+                  type="button"
+                  className={`disc-metric-option${isActive ? ' is-active' : ''}`}
+                  aria-pressed={isActive}
+                  title={option.description}
+                  onClick={() => selection.setMetric(option.name)}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <label className="disc-tolerance">
+            Tolerance
+            <input
+              type="range"
+              min={0.02}
+              max={0.4}
+              step={0.01}
+              value={selection.tolerance}
+              onChange={(event) => selection.setTolerance(Number(event.currentTarget.value))}
+            />
+            <span className="disc-tolerance-value">{selection.tolerance.toFixed(2)}</span>
+          </label>
+          <button type="button" className="disc-clear" onClick={selection.clear}>
+            Clear selection
+          </button>
+          <button type="button" className="disc-clear" onClick={() => setIsSelecting(false)}>
+            Done
+          </button>
+        </div>
+      )}
+
+      {isSelecting && <p className="disc-metric-hint">{selection.metric.description}</p>}
 
       <div
         ref={barRef}
@@ -200,6 +304,14 @@ export function VideoPlayer({
         <span className="player-name" title={name}>
           {name}
         </span>
+        <button
+          type="button"
+          className={`player-replace${isSelecting ? ' is-active' : ''}`}
+          aria-pressed={isSelecting}
+          onClick={toggleSelecting}
+        >
+          Select disc
+        </button>
         <button type="button" className="player-replace" onClick={onRequestReplace}>
           Replace video
         </button>
@@ -207,7 +319,7 @@ export function VideoPlayer({
 
       <p className="player-hint">
         <kbd>Space</kbd> play/pause · <kbd>←</kbd> <kbd>→</kbd> step one frame ·{' '}
-        <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> ten frames
+        <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> ten frames · <kbd>D</kbd> select disc
       </p>
 
       {credit && (
