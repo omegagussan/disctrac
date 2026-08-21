@@ -1,4 +1,5 @@
-import { labDistance, srgbToOklab } from './color.ts'
+import type { ColorMetric } from './metric.ts'
+import { OKLAB_METRIC } from './metric.ts'
 
 /**
  * The RGBA pixel buffer of one frame.
@@ -31,7 +32,8 @@ export interface Mask {
   bounds: Bounds | null
 }
 
-export const DEFAULT_TOLERANCE = 0.12
+/** OKLab's default. Each metric carries its own — see `ColorMetric.defaultTolerance`. */
+export const DEFAULT_TOLERANCE = OKLAB_METRIC.defaultTolerance
 
 export function emptyMask(width: number, height: number): Mask {
   return { width, height, data: new Uint8Array(width * height), pixelCount: 0, bounds: null }
@@ -39,7 +41,7 @@ export function emptyMask(width: number, height: number): Mask {
 
 /**
  * Grow a region outward from (seedX, seedY), taking every 4-connected pixel
- * within `tolerance` OKLab distance **of the seed colour**.
+ * within `tolerance` of the seed colour, as measured by `metric`.
  *
  * Comparing against the seed rather than each pixel's neighbour is the important
  * choice here: neighbour-comparison creeps along gradients and will happily
@@ -52,6 +54,7 @@ export function floodFillMask(
   seedX: number,
   seedY: number,
   tolerance: number = DEFAULT_TOLERANCE,
+  metric: ColorMetric = OKLAB_METRIC,
 ): Mask {
   const { width, height, data } = frame
   const x = Math.floor(seedX)
@@ -65,12 +68,16 @@ export function floodFillMask(
   const visited = new Uint8Array(width * height)
 
   const seedIndex = y * width + x
-  const seedLab = srgbToOklab(data[seedIndex * 4], data[seedIndex * 4 + 1], data[seedIndex * 4 + 2])
+  const seedColor = metric.project(
+    data[seedIndex * 4],
+    data[seedIndex * 4 + 1],
+    data[seedIndex * 4 + 2],
+  )
 
   const withinTolerance = (index: number) => {
     const pixel = index * 4
-    const lab = srgbToOklab(data[pixel], data[pixel + 1], data[pixel + 2])
-    return labDistance(lab, seedLab) <= tolerance
+    const color = metric.project(data[pixel], data[pixel + 1], data[pixel + 2])
+    return metric.distance(color, seedColor) <= tolerance
   }
 
   let minX = x

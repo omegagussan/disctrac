@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_TOLERANCE, emptyMask, floodFillMask, mergeBounds, unionMasks } from './floodFill.ts'
+import { HSV_METRIC, OKLAB_METRIC } from './metric.ts'
 import { GRASS, ORANGE, RED, WHITE, makeFrame } from './testing.ts'
 
 /** 5x5 white frame with a 3x3 red block inset by one pixel. */
@@ -138,5 +139,43 @@ describe('mergeBounds', () => {
     expect(
       mergeBounds({ minX: 5, minY: 0, maxX: 9, maxY: 2 }, { minX: 1, minY: 4, maxX: 6, maxY: 7 }),
     ).toEqual({ minX: 1, minY: 0, maxX: 9, maxY: 7 })
+  })
+})
+
+/**
+ * A disc lit on one side and shaded on the other, sitting on grass. This is the
+ * case that motivates having two metrics at all: the pixels belong to one disc,
+ * but their lightness differs by half.
+ */
+describe('metric choice on a half-shaded disc', () => {
+  const SHADED_ORANGE: [number, number, number] = [115, 60, 15]
+
+  const halfShadedDisc = () =>
+    makeFrame(9, 9, (x, y) => {
+      const dx = x - 4
+      const dy = y - 4
+      if (dx * dx + dy * dy > 4) return GRASS
+      return dx < 0 ? ORANGE : SHADED_ORANGE
+    })
+
+  // Seeded on the sunlit side; the disc is 13 pixels, 4 of them sunlit.
+  it('splits the disc under OKLab, taking only the lit side', () => {
+    const mask = floodFillMask(halfShadedDisc(), 3, 4, OKLAB_METRIC.defaultTolerance, OKLAB_METRIC)
+    expect(mask.pixelCount).toBe(4)
+  })
+
+  it('holds the disc together under HSV', () => {
+    const mask = floodFillMask(halfShadedDisc(), 3, 4, HSV_METRIC.defaultTolerance, HSV_METRIC)
+    expect(mask.pixelCount).toBe(13)
+    expect(mask.bounds).toEqual({ minX: 2, minY: 2, maxX: 6, maxY: 6 })
+  })
+
+  it.each([
+    ['OKLab', OKLAB_METRIC],
+    ['HSV', HSV_METRIC],
+  ])('does not spill into the grass under %s', (_label, metric) => {
+    const mask = floodFillMask(halfShadedDisc(), 3, 4, metric.defaultTolerance, metric)
+    // Corner pixel is grass, far outside the disc.
+    expect(mask.data[0]).toBe(0)
   })
 })
