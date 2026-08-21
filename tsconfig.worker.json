@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
     "target": "es2023",
-    "lib": ["ES2023", "DOM"],
+    /* Worker scope: no DOM globals, but WebGPU and WebCodecs are available. */
+    "lib": ["ES2023", "WebWorker"],
     "module": "esnext",
-    "types": ["vite/client", "@webgpu/types", "dom-webcodecs"],
-    "allowArbitraryExtensions": true,
+    "types": ["@webgpu/types", "dom-webcodecs"],
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -14,7 +14,6 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
-    "jsx": "react-jsx",
 
     /* Linting */
     "noUnusedLocals": true,
@@ -22,7 +21,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
-  /* Worker scope has no DOM globals; built by tsconfig.worker.json instead. */
-  "exclude": ["src/cv-worker.ts"]
+  "include": ["src/cv-worker.ts", "src/cv-protocol.ts"]
 }
