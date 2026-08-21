@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DropZone } from './components/DropZone.tsx'
+import { VideoDropTarget } from './components/VideoDropTarget.tsx'
 import { VideoPlayer } from './components/VideoPlayer.tsx'
 import type { VideoCredit } from './components/VideoPlayer.tsx'
 // Vite emits this as an asset and hands back its URL, so the fixture stays a
@@ -31,6 +31,7 @@ const DEFAULT_CLIP: Clip = {
 
 function App() {
   const [clip, setClip] = useState<Clip>(DEFAULT_CLIP)
+  const [isReplacing, setIsReplacing] = useState(false)
   // Revoking in a cleanup keyed on `clip` would revoke the URL still in use on
   // the very next render, so track the previous one explicitly instead.
   const previousObjectUrl = useRef<string | null>(null)
@@ -40,6 +41,7 @@ function App() {
     const url = URL.createObjectURL(file)
     previousObjectUrl.current = url
     setClip({ url, name: file.name, isObjectUrl: true })
+    setIsReplacing(false)
   }, [])
 
   useEffect(
@@ -50,19 +52,26 @@ function App() {
   )
 
   return (
-    <DropZone onFile={onFile}>
-      <main className="app">
-        <header className="app-header">
-          <h1>disctrac</h1>
-          <p>
-            Frame-by-frame review for disc golf throws.
-            {!clip.isObjectUrl && ' Showing the bundled sample clip.'}
-          </p>
-        </header>
+    <main className="app">
+      <header className="app-header">
+        <h1>disctrac</h1>
+        <p>
+          Frame-by-frame review for disc golf throws.
+          {!clip.isObjectUrl && ' Showing the bundled sample clip.'}
+        </p>
+      </header>
 
-        <VideoPlayer src={clip.url} name={clip.name} credit={clip.credit} />
-      </main>
-    </DropZone>
+      {isReplacing ? (
+        <VideoDropTarget onFile={onFile} onCancel={() => setIsReplacing(false)} />
+      ) : (
+        <VideoPlayer
+          src={clip.url}
+          name={clip.name}
+          credit={clip.credit}
+          onRequestReplace={() => setIsReplacing(true)}
+        />
+      )}
+    </main>
   )
 }
 

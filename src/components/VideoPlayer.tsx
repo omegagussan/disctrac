@@ -36,9 +36,16 @@ export interface VideoPlayerProps {
   /** Shown beneath the player. Required for CC-licensed clips. */
   credit?: VideoCredit
   fps?: number
+  onRequestReplace(): void
 }
 
-export function VideoPlayer({ src, name, credit, fps = DEFAULT_FPS }: VideoPlayerProps) {
+export function VideoPlayer({
+  src,
+  name,
+  credit,
+  fps = DEFAULT_FPS,
+  onRequestReplace,
+}: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -193,12 +200,14 @@ export function VideoPlayer({ src, name, credit, fps = DEFAULT_FPS }: VideoPlaye
         <span className="player-name" title={name}>
           {name}
         </span>
+        <button type="button" className="player-replace" onClick={onRequestReplace}>
+          Replace video
+        </button>
       </div>
 
       <p className="player-hint">
         <kbd>Space</kbd> play/pause · <kbd>←</kbd> <kbd>→</kbd> step one frame ·{' '}
-        <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> ten frames · drop another video anywhere to
-        replace
+        <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> ten frames
       </p>
 
       {credit && (
