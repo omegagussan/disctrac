@@ -8,6 +8,7 @@ import {
   frameCount,
   timeAtFrame,
 } from '../video/frames.ts'
+import { METRICS } from '../video/metric.ts'
 import { useDiscSelection } from '../video/useDiscSelection.ts'
 import { DiscPreview } from './DiscPreview.tsx'
 
@@ -231,6 +232,24 @@ export function VideoPlayer({
 
       {isSelecting && (
         <div className="disc-toolbar">
+          <div className="disc-metric" role="group" aria-label="Colour matching">
+            {METRICS.map((option) => {
+              const isActive = selection.metric.name === option.name
+              return (
+                <button
+                  key={option.name}
+                  type="button"
+                  className={`disc-metric-option${isActive ? ' is-active' : ''}`}
+                  aria-pressed={isActive}
+                  title={option.description}
+                  onClick={() => selection.setMetric(option.name)}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
+
           <label className="disc-tolerance">
             Tolerance
             <input
@@ -251,6 +270,8 @@ export function VideoPlayer({
           </button>
         </div>
       )}
+
+      {isSelecting && <p className="disc-metric-hint">{selection.metric.description}</p>}
 
       <div
         ref={barRef}

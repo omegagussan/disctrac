@@ -2,8 +2,10 @@ import { useCallback, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { buildDiscColorModel, cropMaskedRegion } from './discModel.ts'
 import type { CroppedRegion, DiscColorModel } from './discModel.ts'
-import { DEFAULT_TOLERANCE, floodFillMask, unionMasks } from './floodFill.ts'
+import { floodFillMask, unionMasks } from './floodFill.ts'
 import type { FramePixels, Mask } from './floodFill.ts'
+import type { ColorMetric, MetricName } from './metric.ts'
+import { HSV_METRIC, metricByName } from './metric.ts'
 import type { Point, Size } from './pointer.ts'
 import { pointerToFramePoint } from './pointer.ts'
 
@@ -35,12 +37,16 @@ export interface DiscSelection {
   /** Frame size of the captured frame, for mapping pointer coordinates. */
   frameSize: Size | null
   tolerance: number
+  /** How colour similarity is measured. Defaults to HSV for shade resilience. */
+  metric: ColorMetric
   seedCount: number
   /** Re-read the frame from the video — call when the displayed frame changes. */
   refreshFrame(): void
   /** Sample at a pointer position relative to the video element's top-left. */
   sampleAt(pointer: Point, elementSize: Size): void
   setTolerance(value: number): void
+  /** Switching metric resets the tolerance, since the two scales are unrelated. */
+  setMetric(name: MetricName): void
   clear(): void
 }
 
@@ -57,11 +63,13 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
   // without running a side effect inside a state updater, which StrictMode would
   // invoke twice.
   const seedsRef = useRef<Point[]>([])
-  const [tolerance, setToleranceState] = useState(DEFAULT_TOLERANCE)
+  const [metric, setMetricState] = useState<ColorMetric>(HSV_METRIC)
+  const [tolerance, setToleranceState] = useState(HSV_METRIC.defaultTolerance)
   const [result, setResult] = useState<SelectionResult | null>(null)
   const [frameSize, setFrameSize] = useState<Size | null>(null)
 
-  const recompute = useCallback((nextSeeds: Point[], nextTolerance: number) => {
+  const recompute = useCallback(
+    (nextSeeds: Point[], nextTolerance: number, nextMetric: ColorMetric) => {
     const frame = frameRef.current
     if (!frame || nextSeeds.length === 0) {
       setResult(null)
@@ -70,7 +78,7 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
 
     let mask: Mask | null = null
     for (const seed of nextSeeds) {
-      const filled = floodFillMask(frame, seed.x, seed.y, nextTolerance)
+      const filled = floodFillMask(frame, seed.x, seed.y, nextTolerance, nextMetric)
       mask = mask ? unionMasks(mask, filled) : filled
     }
     if (!mask) {
@@ -83,7 +91,9 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
       model: buildDiscColorModel(frame, mask),
       region: cropMaskedRegion(frame, mask),
     })
-  }, [])
+    },
+    [],
+  )
 
   const refreshFrame = useCallback(() => {
     const video = videoRef.current
@@ -93,8 +103,8 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
     frameRef.current = frame
     setFrameSize({ width: frame.width, height: frame.height })
     // The same seeds still point at the same places on the new frame.
-    recompute(seedsRef.current, tolerance)
-  }, [recompute, tolerance, videoRef])
+    recompute(seedsRef.current, tolerance, metric)
+  }, [metric, recompute, tolerance, videoRef])
 
   const sampleAt = useCallback(
     (pointer: Point, elementSize: Size) => {
@@ -110,15 +120,27 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
       const nextSeeds = [...seeds, point]
       seedsRef.current = nextSeeds
       setSeeds(nextSeeds)
-      recompute(nextSeeds, tolerance)
+      recompute(nextSeeds, tolerance, metric)
     },
-    [recompute, seeds, tolerance],
+    [metric, recompute, seeds, tolerance],
   )
 
   const setTolerance = useCallback(
     (value: number) => {
       setToleranceState(value)
-      recompute(seeds, value)
+      recompute(seeds, value, metric)
+    },
+    [metric, recompute, seeds],
+  )
+
+  const setMetric = useCallback(
+    (name: MetricName) => {
+      const next = metricByName(name)
+      setMetricState(next)
+      // A tolerance tuned for one space means something different in the other,
+      // so carrying it across would silently widen or narrow the selection.
+      setToleranceState(next.defaultTolerance)
+      recompute(seeds, next.defaultTolerance, next)
     },
     [recompute, seeds],
   )
@@ -133,10 +155,12 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
     result,
     frameSize,
     tolerance,
+    metric,
     seedCount: seeds.length,
     refreshFrame,
     sampleAt,
     setTolerance,
+    setMetric,
     clear,
   }
 }
