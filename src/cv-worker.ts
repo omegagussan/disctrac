@@ -13,7 +13,7 @@ import type { AnalysisOptions, CvResponse, StageTimings, TracePoint } from './cv
 import type { CvRequest } from './cv-protocol.ts'
 import type { Affine } from './video/affine.ts'
 import { IDENTITY, applyAffine, composeAffine, invertAffine } from './video/affine.ts'
-import type { GreyFrame } from './video/egoMotion.ts'
+import type { FlowSample, GreyFrame } from './video/egoMotion.ts'
 import { createEgoMotionEstimator, toGreyscale } from './video/egoMotion.ts'
 import { createDiscDetector } from './video/detectDisc.ts'
 import type { DiscDetector } from './video/detectDisc.ts'
@@ -251,7 +251,12 @@ async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
     const beforeMotion = performance.now()
     const estimator = createEgoMotionEstimator(cv)
     const toFrame: Affine[] = []
+    const flowPerFrame: FlowSample[][] = []
     let cumulative: Affine = IDENTITY
+
+    // Enough to see whether the background moves as one, without shipping tens
+    // of thousands of samples across the postMessage boundary.
+    const FLOW_SAMPLE_CAP = 80
     try {
       for (const detection of detections) {
         const motion = estimator.estimateGrey(detection.grey)
@@ -267,6 +272,19 @@ async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
           )
         }
         toFrame.push(cumulative)
+
+        const step = Math.max(1, Math.ceil(motion.samples.length / FLOW_SAMPLE_CAP))
+        flowPerFrame.push(
+          motion.samples
+            .filter((_, index) => index % step === 0)
+            .map((sample) => ({
+              x: sample.x / TRACKING_SCALE,
+              y: sample.y / TRACKING_SCALE,
+              dx: sample.dx / TRACKING_SCALE,
+              dy: sample.dy / TRACKING_SCALE,
+              inlier: sample.inlier,
+            })),
+        )
       }
     } finally {
       estimator.dispose()
@@ -324,6 +342,7 @@ async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
         filtered: point.filtered,
         radius: point.radius,
         toFrame: toFrame[index],
+        flow: flowPerFrame[index],
         occluded: point.occluded,
         gated: point.gated,
         lost: point.lost,

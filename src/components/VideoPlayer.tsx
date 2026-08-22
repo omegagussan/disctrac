@@ -65,6 +65,7 @@ export function VideoPlayer({
   const [analysisProgress, setAnalysisProgress] = useState({ done: 0, total: 0 })
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [showMarkers, setShowMarkers] = useState(true)
+  const [showFlow, setShowFlow] = useState(false)
   // One worker for the component's lifetime; spinning one up per run would pay
   // OpenCV's WASM startup every time.
   const clientRef = useRef<CvClient | null>(null)
@@ -298,6 +299,7 @@ export function VideoPlayer({
           trace={trace}
           currentTimeUs={time * 1e6}
           showMarkers={showMarkers}
+          showFlow={showFlow}
         />
       </div>
 
@@ -388,6 +390,14 @@ export function VideoPlayer({
                 onChange={(event) => setShowMarkers(event.currentTarget.checked)}
               />
               measured vs filtered
+            </label>
+            <label className="analysis-markers" title="Yellow was accepted as background; grey was rejected">
+              <input
+                type="checkbox"
+                checked={showFlow}
+                onChange={(event) => setShowFlow(event.currentTarget.checked)}
+              />
+              optical flow
             </label>
           </>
         )}

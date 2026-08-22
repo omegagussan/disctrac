@@ -144,6 +144,47 @@ describe('createEgoMotionEstimator', () => {
     }
   })
 
+  /**
+   * The samples exist to be looked at, so they have to describe the motion that
+   * was actually fitted — a working estimate shows the background moving as one.
+   */
+  it('reports the corners it fitted, agreeing with the transform', () => {
+    const estimator = createEgoMotionEstimator(cv)
+    try {
+      const frame = frameFor(240)
+      estimator.estimate(frame)
+      const moved = estimator.estimate(shiftFrame(frame, 16, -8))
+
+      expect(moved.samples.length).toBeGreaterThan(20)
+      expect(moved.samples.filter((sample) => sample.inlier).length).toBe(moved.inliers)
+
+      // Under a pure translation the accepted corners must all report it.
+      const accepted = moved.samples.filter((sample) => sample.inlier)
+      for (const sample of accepted.slice(0, 20)) {
+        expect(sample.dx).toBeCloseTo(16, 0)
+        expect(sample.dy).toBeCloseTo(-8, 0)
+      }
+    } finally {
+      estimator.dispose()
+    }
+  })
+
+  it('reports samples in frame pixels, not tracking pixels', () => {
+    const estimator = createEgoMotionEstimator(cv, { scale: 0.5 })
+    try {
+      const frame = frameFor(240)
+      estimator.estimate(frame)
+      const moved = estimator.estimate(shiftFrame(frame, 20, 0))
+      const accepted = moved.samples.filter((sample) => sample.inlier)
+
+      // Tracked at half size, so an unscaled sample would report ~10.
+      expect(accepted[0].dx).toBeCloseTo(20, 0)
+      expect(Math.max(...accepted.map((sample) => sample.x))).toBeGreaterThan(frame.width / 2)
+    } finally {
+      estimator.dispose()
+    }
+  })
+
   it('tolerates being disposed twice', () => {
     const estimator = createEgoMotionEstimator(cv)
     estimator.dispose()

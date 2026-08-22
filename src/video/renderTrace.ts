@@ -38,6 +38,10 @@ export interface TraceColours {
   travelled: string
   measured: string
   filtered: string
+  /** Corners RANSAC accepted as background. */
+  flowInlier: string
+  /** Corners it rejected — moving foreground, or a mistracked corner. */
+  flowOutlier: string
 }
 
 export const DEFAULT_TRACE_COLOURS: TraceColours = {
@@ -45,6 +49,8 @@ export const DEFAULT_TRACE_COLOURS: TraceColours = {
   travelled: 'rgba(59, 130, 246, 0.95)',
   measured: 'rgba(239, 68, 68, 0.95)',
   filtered: 'rgba(34, 197, 94, 0.95)',
+  flowInlier: 'rgba(250, 204, 21, 0.9)',
+  flowOutlier: 'rgba(148, 163, 184, 0.7)',
 }
 
 export interface RenderTraceOptions {
@@ -53,6 +59,8 @@ export interface RenderTraceOptions {
   element: Size
   currentTimeUs: number
   showMarkers: boolean
+  /** Draw the corners camera motion was estimated from, and how each moved. */
+  showFlow?: boolean
   colours?: TraceColours
   /**
    * Smoothing applied before drawing. `null` draws the tracker's raw output,
@@ -135,6 +143,32 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
 
   const current = currentPoint
   if (!current) return
+
+  // Flow belongs to the frame it was measured on, so it is drawn in raw screen
+  // coordinates rather than stabilised like the path.
+  if (options.showFlow && current.flow) {
+    for (const sample of current.flow) {
+      const tail = framePointToElement({ x: sample.x, y: sample.y }, element, frame)
+      const head = framePointToElement(
+        { x: sample.x + sample.dx, y: sample.y + sample.dy },
+        element,
+        frame,
+      )
+      if (!tail || !head) continue
+
+      target.beginPath()
+      target.moveTo(tail.x, tail.y)
+      target.lineTo(head.x, head.y)
+      target.strokeStyle = sample.inlier ? colours.flowInlier : colours.flowOutlier
+      target.lineWidth = sample.inlier ? 1.5 : 1
+      target.stroke()
+
+      target.beginPath()
+      target.arc(head.x, head.y, sample.inlier ? 2 : 1.5, 0, Math.PI * 2)
+      target.fillStyle = sample.inlier ? colours.flowInlier : colours.flowOutlier
+      target.fill()
+    }
+  }
 
   const dot = (at: { x: number; y: number }, colour: string, radius: number) => {
     target.beginPath()

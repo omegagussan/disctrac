@@ -8,13 +8,20 @@ export interface TraceOverlayProps {
   currentTimeUs: number
   /** Show the raw measurement and filtered estimate as separate markers. */
   showMarkers: boolean
+  /** Show the corners camera motion was estimated from. */
+  showFlow: boolean
 }
 
 /**
  * Hosts the canvas the flight path is drawn on. The drawing itself lives in
  * src/video/renderTrace.ts so it can be exercised without a browser.
  */
-export function TraceOverlay({ trace, currentTimeUs, showMarkers }: TraceOverlayProps) {
+export function TraceOverlay({
+  trace,
+  currentTimeUs,
+  showMarkers,
+  showFlow,
+}: TraceOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const draw = useCallback(() => {
@@ -40,8 +47,9 @@ export function TraceOverlay({ trace, currentTimeUs, showMarkers }: TraceOverlay
       element: { width, height },
       currentTimeUs,
       showMarkers,
+      showFlow,
     })
-  }, [currentTimeUs, showMarkers, trace])
+  }, [currentTimeUs, showFlow, showMarkers, trace])
 
   useEffect(() => {
     draw()

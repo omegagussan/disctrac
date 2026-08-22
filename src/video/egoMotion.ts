@@ -55,11 +55,29 @@ const DEFAULTS: Required<EgoMotionOptions> = {
   ransacThreshold: 3,
 }
 
+/**
+ * One tracked corner's movement between frames, for inspection.
+ *
+ * Position is where the corner sat in the previous frame; the delta is how far
+ * it moved. `inlier` says whether RANSAC accepted it as background — the useful
+ * signal when judging an estimate by eye, since a working fit shows the
+ * background moving as one and the disc and player rejected.
+ */
+export interface FlowSample {
+  x: number
+  y: number
+  dx: number
+  dy: number
+  inlier: boolean
+}
+
 export interface EgoMotion {
   /** Where a point in the previous frame appears in this one. */
   transform: Affine
   /** Corners that survived tracking and RANSAC. Low means an untrustworthy estimate. */
   inliers: number
+  /** Every tracked corner, in the units of the frames given to the estimator. */
+  samples: FlowSample[]
   /** False when the estimate fell back to the identity. */
   ok: boolean
 }
@@ -210,13 +228,13 @@ export function createEgoMotionEstimator(
         previousPoints?.delete()
         previous = current
         previousPoints = detectCorners(current)
-        return { transform: IDENTITY, inliers: 0, ok: false }
+        return { transform: IDENTITY, inliers: 0, samples: [], ok: false }
       }
 
       const nextPoints = new cv.Mat()
       const status = new cv.Mat()
       const error = new cv.Mat()
-      let result: EgoMotion = { transform: IDENTITY, inliers: 0, ok: false }
+      let result: EgoMotion = { transform: IDENTITY, inliers: 0, samples: [], ok: false }
       let survivors: Mat | null = null
 
       try {
@@ -255,8 +273,17 @@ export function createEgoMotionEstimator(
 
             if (estimated && !estimated.empty()) {
               let inliers = 0
-              for (let index = 0; index < inlierMask.rows; index += 1) {
-                if (inlierMask.data[index] !== 0) inliers += 1
+              const samples: FlowSample[] = []
+              for (let index = 0; index < matched; index += 1) {
+                const inlier = inlierMask.rows > index && inlierMask.data[index] !== 0
+                if (inlier) inliers += 1
+                samples.push({
+                  x: fromValues[index * 2],
+                  y: fromValues[index * 2 + 1],
+                  dx: toValues[index * 2] - fromValues[index * 2],
+                  dy: toValues[index * 2 + 1] - fromValues[index * 2 + 1],
+                  inlier,
+                })
               }
               // The estimate was made at tracking scale. The linear part is
               // scale-free; the translation is not.
@@ -270,6 +297,7 @@ export function createEgoMotionEstimator(
                   ty: estimated.doubleAt(1, 2),
                 },
                 inliers,
+                samples,
                 ok: true,
               }
             }
@@ -304,13 +332,21 @@ export function createEgoMotionEstimator(
       if (!motion.ok || settings.scale === 1) return motion
       // The estimate was made at tracking scale. The linear part is scale-free;
       // the translation is not.
+      const up = 1 / settings.scale
       return {
         ...motion,
         transform: {
           ...motion.transform,
-          tx: motion.transform.tx / settings.scale,
-          ty: motion.transform.ty / settings.scale,
+          tx: motion.transform.tx * up,
+          ty: motion.transform.ty * up,
         },
+        samples: motion.samples.map((sample) => ({
+          x: sample.x * up,
+          y: sample.y * up,
+          dx: sample.dx * up,
+          dy: sample.dy * up,
+          inlier: sample.inlier,
+        })),
       }
     },
 

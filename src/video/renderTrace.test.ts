@@ -5,7 +5,14 @@ import { createTraceRecorder } from './traceRecorder.ts'
 
 const ANALYSIS = { width: 640, height: 360 }
 
+const FLOW = [
+  { x: 100, y: 50, dx: 8, dy: 0, inlier: true },
+  { x: 200, y: 80, dx: 8, dy: 0, inlier: true },
+  { x: 300, y: 90, dx: -20, dy: 14, inlier: false },
+]
+
 const point = (frameIndex: number, x: number, y: number, lost = false): TracePoint => ({
+  flow: FLOW,
   frameIndex,
   timestampUs: frameIndex * 33_367,
   measured: lost ? null : { x, y },
@@ -117,5 +124,68 @@ describe('renderTrace', () => {
     const ring = recorder.arcs.find((arc) => !arc.filled)
     // radius 5 in frame space at 2x scale.
     expect(ring).toMatchObject({ x: 200, y: 100, radius: 10 })
+  })
+})
+
+describe('optical flow overlay', () => {
+  const trace = traceOf([point(0, 100, 50), point(1, 110, 60)])
+
+  it('draws nothing extra unless asked', () => {
+    const recorder = createTraceRecorder()
+    renderTrace(recorder, {
+      trace,
+      element: ELEMENT,
+      currentTimeUs: 0,
+      showMarkers: false,
+      showFlow: false,
+    })
+    const flowColoured = recorder.paths.filter(
+      (path) =>
+        path.colour === DEFAULT_TRACE_COLOURS.flowInlier ||
+        path.colour === DEFAULT_TRACE_COLOURS.flowOutlier,
+    )
+    expect(flowColoured).toEqual([])
+  })
+
+  it('draws one vector per tracked corner, colour-coded by whether it was accepted', () => {
+    const recorder = createTraceRecorder()
+    renderTrace(recorder, {
+      trace,
+      element: ELEMENT,
+      currentTimeUs: 0,
+      showMarkers: false,
+      showFlow: true,
+    })
+
+    const inliers = recorder.paths.filter((path) => path.colour === DEFAULT_TRACE_COLOURS.flowInlier)
+    const outliers = recorder.paths.filter(
+      (path) => path.colour === DEFAULT_TRACE_COLOURS.flowOutlier,
+    )
+    expect(inliers).toHaveLength(2)
+    expect(outliers).toHaveLength(1)
+
+    // Element is twice the analysis frame, so the vector doubles with it.
+    expect(inliers[0].points[0]).toEqual({ x: 200, y: 100 })
+    expect(inliers[0].points[1]).toEqual({ x: 216, y: 100 })
+  })
+
+  /** Flow belongs to the frame it was measured on and is not stabilised. */
+  it('draws flow in raw screen coordinates', () => {
+    const shifted: TracePoint[] = [
+      { ...point(0, 100, 50), toFrame: { a: 1, b: 0, c: 0, d: 1, tx: 500, ty: 0 } },
+      { ...point(1, 110, 60), toFrame: { a: 1, b: 0, c: 0, d: 1, tx: 500, ty: 0 } },
+    ]
+    const recorder = createTraceRecorder()
+    renderTrace(recorder, {
+      trace: traceOf(shifted),
+      element: ELEMENT,
+      currentTimeUs: 0,
+      showMarkers: false,
+      showFlow: true,
+    })
+
+    const inliers = recorder.paths.filter((path) => path.colour === DEFAULT_TRACE_COLOURS.flowInlier)
+    // Untouched by the 500px stabilisation the path itself receives.
+    expect(inliers[0].points[0]).toEqual({ x: 200, y: 100 })
   })
 })

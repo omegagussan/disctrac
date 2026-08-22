@@ -6,6 +6,7 @@
  */
 import type { Affine } from './video/affine.ts'
 import type { DiscColorModel } from './video/discModel.ts'
+import type { FlowSample } from './video/egoMotion.ts'
 
 export interface AnalysisOptions {
   /** The colours picked from a frame, used to threshold every frame. */
@@ -60,6 +61,12 @@ export interface TracePoint {
   radius: number | null
   /** World to this frame's screen position. Absent when motion was not estimated. */
   toFrame?: Affine
+  /**
+   * The corners camera motion was estimated from, in this frame's screen
+   * pixels. Sampled down, since these exist to be looked at rather than
+   * computed with.
+   */
+  flow?: FlowSample[]
   occluded: boolean
   /** The measurement was inconsistent enough with the physics to look like a tree strike. */
   gated: boolean
