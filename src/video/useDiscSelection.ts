@@ -40,6 +40,10 @@ export interface DiscSelection {
   /** How colour similarity is measured. Defaults to HSV for shade resilience. */
   metric: ColorMetric
   seedCount: number
+  /** The points clicked, in captured-frame pixels. */
+  seeds: Point[]
+  /** Playback position of the captured frame, in microseconds. */
+  capturedAtUs: number | null
   /** Re-read the frame from the video — call when the displayed frame changes. */
   refreshFrame(): void
   /** Sample at a pointer position relative to the video element's top-left. */
@@ -67,6 +71,7 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
   const [tolerance, setToleranceState] = useState(HSV_METRIC.defaultTolerance)
   const [result, setResult] = useState<SelectionResult | null>(null)
   const [frameSize, setFrameSize] = useState<Size | null>(null)
+  const [capturedAtUs, setCapturedAtUs] = useState<number | null>(null)
 
   const recompute = useCallback(
     (nextSeeds: Point[], nextTolerance: number, nextMetric: ColorMetric) => {
@@ -102,6 +107,9 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
     if (!frame) return
     frameRef.current = frame
     setFrameSize({ width: frame.width, height: frame.height })
+    // Recorded so an analysis can seed its track at the moment the disc was
+    // actually identified, rather than guessing on the first frame.
+    setCapturedAtUs(video.currentTime * 1e6)
     // The same seeds still point at the same places on the new frame.
     recompute(seedsRef.current, tolerance, metric)
   }, [metric, recompute, tolerance, videoRef])
@@ -157,6 +165,8 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
     tolerance,
     metric,
     seedCount: seeds.length,
+    seeds,
+    capturedAtUs,
     refreshFrame,
     sampleAt,
     setTolerance,

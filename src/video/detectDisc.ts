@@ -21,6 +21,18 @@ export interface DiscDetectorOptions {
   minArea?: number
   /** Diameter of the elliptical kernel used to open the mask. 0 disables it. */
   openKernel?: number
+  /**
+   * Contours above this area are not a disc. A person's shirt reaches several
+   * thousand pixels at a 640-wide analysis frame while a disc in flight falls
+   * below fifty, so this rejects the grossest false positives — but it cannot
+   * separate the two on its own, and is not what makes association work.
+   */
+  maxArea?: number
+  /**
+   * The same limit expressed as a fraction of the frame, which lets a caller set
+   * it before knowing the frame size.
+   */
+  maxAreaFraction?: number
 }
 
 export interface FrameDetection {
@@ -41,6 +53,8 @@ export function createDiscDetector(
   options: DiscDetectorOptions = {},
 ): DiscDetector {
   const minArea = options.minArea ?? 12
+  const maxArea = options.maxArea ?? Number.POSITIVE_INFINITY
+  const maxAreaFraction = options.maxAreaFraction ?? 1
   const kernelSize = options.openKernel ?? DEFAULT_OPEN_KERNEL
 
   // Scratch buffers, allocated on the first frame and reused after. Reallocating
@@ -81,6 +95,7 @@ export function createDiscDetector(
       if (frame.width !== width || frame.height !== height || !source) {
         allocate(frame.width, frame.height)
       }
+      const areaLimit = Math.min(maxArea, frame.width * frame.height * maxAreaFraction)
       const src = source!
       const hsvMat = hsv!
       const maskMat = mask!
@@ -130,7 +145,7 @@ export function createDiscDetector(
           const contour = contours.get(index)
           try {
             const area = cv.contourArea(contour)
-            if (area < minArea) continue
+            if (area < minArea || area > areaLimit) continue
             const moments = cv.moments(contour)
             // A zero zeroth moment means a degenerate contour with no interior;
             // dividing by it would yield NaN coordinates.

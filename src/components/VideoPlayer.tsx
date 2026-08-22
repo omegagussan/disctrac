@@ -129,9 +129,21 @@ export function VideoPlayer({
       // The worker decodes the clip itself, so it needs the bytes. A fresh fetch
       // each run is deliberate: the buffer is transferred and cannot be reused.
       const clip = await (await fetch(src)).arrayBuffer()
+      // The click already located the disc; passing it stops the tracker having
+      // to guess on frame one, where the largest matching blob is a shirt.
+      const firstSeed = selection.seeds[0]
+      const seed =
+        firstSeed && selection.frameSize && selection.capturedAtUs !== null
+          ? {
+              timestampUs: selection.capturedAtUs,
+              x: firstSeed.x / selection.frameSize.width,
+              y: firstSeed.y / selection.frameSize.height,
+            }
+          : undefined
+
       const result = await clientRef.current.analyse(
         clip,
-        { model, tolerance: selection.tolerance, analysisWidth: 640 },
+        { model, tolerance: selection.tolerance, analysisWidth: 640, seed },
         { onProgress: (done, total) => setAnalysisProgress({ done, total }) },
       )
       setTrace(result)
@@ -140,7 +152,7 @@ export function VideoPlayer({
     } finally {
       setIsAnalysing(false)
     }
-  }, [selection.result, selection.tolerance, src])
+  }, [selection.capturedAtUs, selection.frameSize, selection.result, selection.seeds, selection.tolerance, src])
 
   // A trace belongs to one clip; keeping it across a change would draw the old
   // flight over the new video.

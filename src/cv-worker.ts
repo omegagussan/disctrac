@@ -12,6 +12,7 @@ import { MP4BoxBuffer, createFile } from 'mp4box'
 import type { AnalysisOptions, CvResponse, StageTimings, TracePoint } from './cv-protocol.ts'
 import type { CvRequest } from './cv-protocol.ts'
 import { createDiscDetector } from './video/detectDisc.ts'
+import type { DiscDetector } from './video/detectDisc.ts'
 import { modelToHsvBounds } from './video/hsvBounds.ts'
 import { openCvReady } from './video/opencv.ts'
 import type { Candidate } from './video/tracker.ts'
@@ -104,9 +105,11 @@ async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
     throw new Error('the colour model has no modes, so there is nothing to threshold on')
   }
 
-  const detector = createDiscDetector(cv, {
+  const detector: DiscDetector = createDiscDetector(cv, {
     minArea: options.minArea,
     openKernel: options.openKernel,
+    // A disc never covers a fiftieth of the frame; a shirt easily does.
+    maxAreaFraction: options.maxAreaFraction ?? 0.02,
   })
 
   const timings: StageTimings = { frames: 0, readbackMs: 0, detectMs: 0, trackMs: 0, totalMs: 0 }
@@ -224,7 +227,18 @@ async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
     const dt = detections.length > 1 ? span / (detections.length - 1) / 1e6 : 1 / 30
 
     const beforeTrack = performance.now()
-    const tracker = createTracker({ minArea: options.minArea, kalman: { dt } })
+    const tracker = createTracker({
+      minArea: options.minArea,
+      // A disc cannot cross this much of the frame between consecutive frames;
+      // anything further away is a different object rather than a jump.
+      maxAssociationDistance: analysisWidth * 0.1,
+      kalman: { dt },
+      seed: options.seed && {
+        timestampUs: options.seed.timestampUs,
+        x: options.seed.x * analysisWidth,
+        y: options.seed.y * analysisHeight,
+      },
+    })
     const points: TracePoint[] = detections.map((detection, index) => {
       const point = tracker.process(index, detection.timestampUs, detection.candidates)
       return {

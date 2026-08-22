@@ -17,6 +17,18 @@ export interface AnalysisOptions {
   minArea?: number
   /** Diameter of the kernel used to open the mask. 0 disables it. */
   openKernel?: number
+  /** Contours above this fraction of the frame are not a disc. */
+  maxAreaFraction?: number
+  /**
+   * Where the disc was when the user picked it, normalised to 0..1 of the source
+   * frame, plus when.
+   *
+   * Without this the tracker's first frame has no prediction and falls back to
+   * the largest matching blob — which on real footage is a shirt or a patch of
+   * sunlit grass, never the disc. Measured on the throw-02 fixture the disc runs
+   * from 783px down to 23px while those distractors stay in the thousands.
+   */
+  seed?: { timestampUs: number; x: number; y: number }
 }
 
 /** Sent main thread -> worker. */

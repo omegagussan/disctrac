@@ -38,8 +38,27 @@ export interface TrackPoint {
   lost: boolean
 }
 
+export interface TrackerSeed {
+  /** Timestamp of the frame the disc was identified on. */
+  timestampUs: number
+  x: number
+  y: number
+}
+
 export interface TrackerOptions {
   kalman?: Partial<KalmanConfig>
+  /**
+   * Where the disc is known to be, and when.
+   *
+   * Without this the first frame has no prediction, so association falls back to
+   * the largest blob — and on real footage the disc is almost never the largest
+   * thing matching its colour. Measured on the throw-02 fixture, the disc runs
+   * from 783 px down to 23 px as it flies away while shirt and sunlit grass stay
+   * in the thousands, so largest-wins starts the track on the wrong object every
+   * time and never recovers. A seed removes the guess entirely: the user already
+   * pointed at the disc when picking its colours.
+   */
+  seed?: TrackerSeed
   /** Contours smaller than this are compression noise, not a disc. */
   minArea?: number
   /**
@@ -96,6 +115,8 @@ export function createTracker(options: TrackerOptions = {}): Tracker {
 
   let filter: KalmanFilter = createKalmanFilter(kalmanConfig)
   const points: TrackPoint[] = []
+  const seed = options.seed
+  let seeded = false
 
   return {
     process(frameIndex, timestampUs, candidates) {
@@ -104,6 +125,29 @@ export function createTracker(options: TrackerOptions = {}): Tracker {
       // position the disc left long ago.
       if (filter.isLost) {
         filter = createKalmanFilter(kalmanConfig)
+      }
+
+      // Nothing is tracked before the disc has been identified; extrapolating
+      // backwards from a seed would be inventing history.
+      if (seed && !seeded && timestampUs < seed.timestampUs) {
+        const point: TrackPoint = {
+          frameIndex,
+          timestampUs,
+          measured: null,
+          filtered: { x: 0, y: 0 },
+          radius: null,
+          occluded: true,
+          gated: false,
+          mahalanobis: 0,
+          lost: true,
+        }
+        points.push(point)
+        return point
+      }
+
+      if (seed && !seeded) {
+        filter.correct({ x: seed.x, y: seed.y })
+        seeded = true
       }
 
       const prediction = filter.state ? filter.predict() : null
