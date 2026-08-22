@@ -4,6 +4,7 @@
  * Both sides import these types so the postMessage boundary stays type-checked;
  * the worker runs under tsconfig.worker.json, the client under tsconfig.app.json.
  */
+import type { Affine } from './video/affine.ts'
 import type { DiscColorModel } from './video/discModel.ts'
 
 export interface AnalysisOptions {
@@ -40,11 +41,14 @@ export type CvRequest =
 /**
  * One frame of the flight.
  *
- * Coordinates are pixels **in the analysis frame**, whose size is reported
- * alongside. They are not normalised: the overlay maps them with the same
- * letterbox-aware helper it uses for clicks, and giving that helper the analysis
- * size is exact, where a normalise-then-rescale round trip is one more
- * convention to misread.
+ * Coordinates are **world** pixels — the analysis frame's coordinate system as
+ * it stood on the first frame, with camera motion divided out. That is what
+ * makes the motion model and any curve fitted to the path describe the disc
+ * rather than the camera operator's arms.
+ *
+ * `toFrame` maps those world coordinates into this frame's screen position, so
+ * the overlay can put the path back where the scene is now. Absent means camera
+ * motion was not estimated and the coordinates are already screen positions.
  */
 export interface TracePoint {
   frameIndex: number
@@ -54,6 +58,8 @@ export interface TracePoint {
   /** The filtered estimate — what the trace is drawn from. */
   filtered: { x: number; y: number }
   radius: number | null
+  /** World to this frame's screen position. Absent when motion was not estimated. */
+  toFrame?: Affine
   occluded: boolean
   /** The measurement was inconsistent enough with the physics to look like a tree strike. */
   gated: boolean
@@ -68,6 +74,8 @@ export interface StageTimings {
   readbackMs: number
   /** Threshold, morphology and contours. */
   detectMs: number
+  /** Sparse optical flow and the affine fit, per frame. */
+  motionMs: number
   /** Kalman prediction, association and update. */
   trackMs: number
   /** Wall-clock for the whole pass, including decode. */

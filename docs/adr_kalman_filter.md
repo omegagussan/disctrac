@@ -92,9 +92,13 @@ with, and several are known to be wrong in ways that are currently acceptable.
    with dropped frames.
 5. **One disc.** No multi-target data association. A second disc in frame is a distractor to be
    rejected, not a second track.
-6. **Coordinates are screen space.** The model describes motion *as seen by the camera*. A static
-   camera makes this equivalent to world motion up to projection; **a panning camera breaks it
-   outright**, which is the whole subject of PR 2.
+6. **Coordinates are world space, not screen space.** Camera motion is estimated per frame and
+   divided out, so the model describes the disc rather than the operator's arms. This was
+   originally deferred; it turned out to be a prerequisite for reasoning about any fit at all,
+   because on screen the fixture's disc appears to reverse direction mid-flight. The residual
+   assumptions are that the background is rigid and dominates the frame, and that a 2D affine
+   transform describes the camera adequately — true for pan, rotation and zoom, false for
+   parallax when the camera translates through a deep scene.
 7. **Measurement error is zero-mean and roughly isotropic.** Motion blur violates this — a blurred
    disc's centroid is biased along the direction of travel — but the bias is small relative to the
    blob and is not modelled.
@@ -173,34 +177,41 @@ UI rather than to treat as a bug. The mask is the interface boundary, so if sele
 regresses noticeably the fallback is a one-function swap: build the mask with `hsvDistance` and
 hand it to OpenCV for morphology and contours.
 
-## PR 2: ego-motion compensation
+## Ego-motion compensation
 
-Screen-space tracking (assumption 6) fails on a panning camera. In `throw-03-flight-pan.mp4` the
-operator follows the disc, so the disc is nearly *stationary* in frame while the world slides past
-— a constant-velocity model there describes the camera, not the disc, and the drawn path is a
-squiggle rather than an arc.
+Implemented, having proved to be a prerequisite rather than a refinement: on the fixture the disc's
+screen-space horizontal motion *reverses* mid-flight because the operator pans to follow it, so any
+curve fitted to screen coordinates is fitting the camera.
 
-The intended fix is to estimate background motion between frames and apply the inverse transform
-**to the filter state**, not to the image. Warping a megapixel per frame to keep the state still is
-backwards; transforming four numbers costs nothing.
+The camera's motion between consecutive frames is estimated with sparse optical flow, accumulated
+into a transform from the first frame's coordinates into each later one, and inverted to put
+measurements into world space before they reach the filter. The transform travels with each trace
+point so the overlay can map the path back onto wherever the scene is now — the path stays pinned
+to the ground instead of smearing with the camera. Applying the transform to the state and to the
+drawing costs a handful of flops; warping a megapixel a frame to achieve the same thing would not.
 
-**Open decision, to be settled with measurements rather than in advance:**
+**Sparse, never dense.** Farneback computes flow for every pixel; a few hundred tracked corners
+recover a global transform for a fraction of the cost. Tracking runs at half the analysis width,
+corners are carried across frames and only re-detected when survivors fall below a floor, and
+RANSAC fits the transform so the moving foreground — the disc, the player — is rejected as outliers
+rather than averaged in.
 
-- **Full 4-DOF partial affine** (pan, rotation, uniform scale) via `goodFeaturesToTrack` +
-  `calcOpticalFlowPyrLK` + `estimateAffinePartial2D`. Most capable; OpenCV.js already present, and
-  pyramidal Lucas-Kanade with a robust affine fit is emphatically not something to hand-roll.
-- **Translation only**, via integral projections or phase correlation on a downscaled grayscale
-  frame. Roughly 60 lines and no new machinery. Rotation and zoom are the expensive degrees of
-  freedom to recover, and for a handheld follow-pan they may simply not be needed.
+**Two pieces are hand-rolled, because this OpenCV build omits them while its typings promise them:**
+`goodFeaturesToTrack` is reimplemented on `cornerMinEigenVal`, which is what it uses internally, and
+`estimateAffinePartial2D` is substituted with `estimateAffine2D`. The substitution costs some
+rigour: 6 degrees of freedom where a camera has 4, so the fit *can* express a shear no lens
+produces. RANSAC over a few hundred background corners does not appear to exploit that, but it is a
+place to look if a transform ever comes out distorted.
 
-Performance guidance to carry forward, should the first option win: keep the flow **sparse, never
-dense** — Farneback computes every pixel and is not viable here; **downscale hard** first (240p is
-ample for global camera motion); **reuse tracked points** across frames and only re-run corner
-detection when survivors fall below a floor; and **trim `winSize` and `maxLevel`** downward, since
-smaller windows and shallower pyramids trade large-motion robustness for speed. Note also that the
-current design is a *batch* pass, not realtime playback, so the binding constraint is total
-wall-clock rather than a per-frame budget — which makes the expensive option more affordable here
-than it would be live.
+**Measured consequences.** Per-frame translation on the fixture is ~34px, which agrees with an
+independent estimate from aligning column-brightness profiles (23-35px). With the camera divided
+out, the annotated disc positions become strictly monotonic where on screen they reverse, and the
+total travel goes from under 100px apparent to over 500px real.
+
+**A knock-on effect worth knowing:** world-space motion is *larger* than screen-space motion when
+the camera follows the subject, because the camera was cancelling it. The association radius had to
+widen from a tenth of the frame width to a fifth; a value tuned against apparent motion will be too
+tight once the camera is removed.
 
 ## Alternatives considered
 

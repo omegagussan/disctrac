@@ -11,6 +11,10 @@
 import { MP4BoxBuffer, createFile } from 'mp4box'
 import type { AnalysisOptions, CvResponse, StageTimings, TracePoint } from './cv-protocol.ts'
 import type { CvRequest } from './cv-protocol.ts'
+import type { Affine } from './video/affine.ts'
+import { IDENTITY, applyAffine, composeAffine, invertAffine } from './video/affine.ts'
+import type { GreyFrame } from './video/egoMotion.ts'
+import { createEgoMotionEstimator, toGreyscale } from './video/egoMotion.ts'
 import { createDiscDetector } from './video/detectDisc.ts'
 import type { DiscDetector } from './video/detectDisc.ts'
 import { modelToHsvBounds } from './video/hsvBounds.ts'
@@ -93,7 +97,17 @@ function describeTrack(file: ReturnType<typeof createFile>, trackId: number): Ui
 interface FrameDetections {
   timestampUs: number
   candidates: Candidate[]
+  /**
+   * Kept so camera motion can be estimated after the frames are ordered.
+   * Decode order is not presentation order, and motion between the wrong pair of
+   * frames is worse than none. At a quarter of the analysis area this is ~58KB a
+   * frame, which a whole clip can afford; the RGBA it came from could not.
+   */
+  grey: GreyFrame
 }
+
+/** Camera motion is global, so it is estimated at half the analysis width. */
+const TRACKING_SCALE = 0.5
 
 async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
   const startedAt = performance.now()
@@ -112,7 +126,7 @@ async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
     maxAreaFraction: options.maxAreaFraction ?? 0.02,
   })
 
-  const timings: StageTimings = { frames: 0, readbackMs: 0, detectMs: 0, trackMs: 0, totalMs: 0 }
+  const timings: StageTimings = { frames: 0, readbackMs: 0, detectMs: 0, motionMs: 0, trackMs: 0, totalMs: 0 }
   const detections: FrameDetections[] = []
   let canvas: OffscreenCanvas | null = null
   let context: OffscreenCanvasRenderingContext2D | null = null
@@ -150,7 +164,11 @@ async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
       timings.detectMs += afterDetect - beforeDetect
       timings.frames += 1
 
-      detections.push({ timestampUs: frame.timestamp, candidates })
+      detections.push({
+        timestampUs: frame.timestamp,
+        candidates,
+        grey: toGreyscale(pixels, TRACKING_SCALE),
+      })
 
       if (timings.frames % 15 === 0) {
         post({ type: 'progress', framesDone: timings.frames, framesTotal })
@@ -226,27 +244,86 @@ async function analyse(clip: ArrayBuffer, options: AnalysisOptions) {
     const span = detections[detections.length - 1].timestampUs - detections[0].timestampUs
     const dt = detections.length > 1 ? span / (detections.length - 1) / 1e6 : 1 / 30
 
+    // Camera motion, accumulated into a transform from the first frame's
+    // coordinates into each later frame. Tracking then happens with the camera
+    // divided out, so the constant-velocity model describes the disc rather than
+    // the operator's arms.
+    const beforeMotion = performance.now()
+    const estimator = createEgoMotionEstimator(cv)
+    const toFrame: Affine[] = []
+    let cumulative: Affine = IDENTITY
+    try {
+      for (const detection of detections) {
+        const motion = estimator.estimateGrey(detection.grey)
+        if (motion.ok) {
+          // The estimate is in tracking pixels; only its translation scales.
+          cumulative = composeAffine(
+            {
+              ...motion.transform,
+              tx: motion.transform.tx / TRACKING_SCALE,
+              ty: motion.transform.ty / TRACKING_SCALE,
+            },
+            cumulative,
+          )
+        }
+        toFrame.push(cumulative)
+      }
+    } finally {
+      estimator.dispose()
+    }
+    timings.motionMs = performance.now() - beforeMotion
+
+    const toWorld = toFrame.map((transform) => invertAffine(transform) ?? IDENTITY)
+
     const beforeTrack = performance.now()
+
+    // The seed arrives as a position on one frame's screen; the tracker works in
+    // world coordinates, so it has to be carried across too.
+    let worldSeed: { timestampUs: number; x: number; y: number } | undefined
+    if (options.seed) {
+      const screen = {
+        x: options.seed.x * analysisWidth,
+        y: options.seed.y * analysisHeight,
+      }
+      let nearest = 0
+      for (let index = 1; index < detections.length; index += 1) {
+        const closer =
+          Math.abs(detections[index].timestampUs - options.seed.timestampUs) <
+          Math.abs(detections[nearest].timestampUs - options.seed.timestampUs)
+        if (closer) nearest = index
+      }
+      const world = applyAffine(toWorld[nearest], screen)
+      worldSeed = { timestampUs: options.seed.timestampUs, x: world.x, y: world.y }
+    }
+
     const tracker = createTracker({
       minArea: options.minArea,
       // A disc cannot cross this much of the frame between consecutive frames;
       // anything further away is a different object rather than a jump.
-      maxAssociationDistance: analysisWidth * 0.1,
+      //
+      // Measured in world coordinates, which is *looser* than it sounds: with
+      // the camera divided out the disc's motion is its own, and an operator
+      // panning to follow it was previously cancelling much of that out. On the
+      // fixture the disc covers up to 60px a frame in world space against half
+      // that on screen.
+      maxAssociationDistance: analysisWidth * 0.2,
       kalman: { dt },
-      seed: options.seed && {
-        timestampUs: options.seed.timestampUs,
-        x: options.seed.x * analysisWidth,
-        y: options.seed.y * analysisHeight,
-      },
+      seed: worldSeed,
     })
     const points: TracePoint[] = detections.map((detection, index) => {
-      const point = tracker.process(index, detection.timestampUs, detection.candidates)
+      const intoWorld = toWorld[index]
+      const candidates = detection.candidates.map((candidate) => {
+        const world = applyAffine(intoWorld, candidate)
+        return { ...candidate, x: world.x, y: world.y }
+      })
+      const point = tracker.process(index, detection.timestampUs, candidates)
       return {
         frameIndex: point.frameIndex,
         timestampUs: point.timestampUs,
         measured: point.measured,
         filtered: point.filtered,
         radius: point.radius,
+        toFrame: toFrame[index],
         occluded: point.occluded,
         gated: point.gated,
         lost: point.lost,

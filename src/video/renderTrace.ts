@@ -1,4 +1,6 @@
 import type { Trace } from '../cv-protocol.ts'
+import type { Affine } from './affine.ts'
+import { IDENTITY, applyAffine } from './affine.ts'
 import type { Point, Size } from './pointer.ts'
 import { framePointToElement, frameToElementScale } from './pointer.ts'
 import type { SmoothingOptions } from './smoothing.ts'
@@ -80,6 +82,13 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
   // the underlying trace keeps its raw values for anything that wants them.
   const smoothing = options.smoothing === null ? null : (options.smoothing ?? DEFAULT_SMOOTHING)
 
+  // Where the scene is *now*. Every historical point is mapped through this, so
+  // the path stays pinned to the ground while the camera moves rather than
+  // smearing across the picture with it.
+  const currentPoint = pointAt(segments, currentTimeUs)
+  const stabilise: Affine = currentPoint?.toFrame ?? IDENTITY
+  const toScreen = (world: Point) => applyAffine(stabilise, world)
+
   const smoothedByFrame = new Map<number, Point>()
   const drawnSegments = segments.map((segment) => {
     const positions = segment.map((point) => point.filtered)
@@ -100,7 +109,7 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
     target.beginPath()
     let started = false
     for (const sample of samples) {
-      const at = framePointToElement(sample.position, element, frame)
+      const at = framePointToElement(toScreen(sample.position), element, frame)
       if (!at) continue
       if (started) target.lineTo(at.x, at.y)
       else {
@@ -124,7 +133,7 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
     )
   }
 
-  const current = pointAt(segments, currentTimeUs)
+  const current = currentPoint
   if (!current) return
 
   const dot = (at: { x: number; y: number }, colour: string, radius: number) => {
@@ -136,7 +145,7 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
 
   const scale = frameToElementScale(element, frame)
   const filteredAt = framePointToElement(
-    smoothedByFrame.get(current.frameIndex) ?? current.filtered,
+    toScreen(smoothedByFrame.get(current.frameIndex) ?? current.filtered),
     element,
     frame,
   )
@@ -155,7 +164,7 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
   }
 
   if (showMarkers && current.measured) {
-    const measuredAt = framePointToElement(current.measured, element, frame)
+    const measuredAt = framePointToElement(toScreen(current.measured), element, frame)
     if (measuredAt) dot(measuredAt, colours.measured, 3)
   }
 }
