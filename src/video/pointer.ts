@@ -39,3 +39,31 @@ export function pointerToFramePoint(pointer: Point, element: Size, frame: Size):
   if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) return null
   return { x, y }
 }
+
+/**
+ * How many element pixels one frame pixel occupies. The overlay needs this to
+ * scale a radius as well as a position.
+ */
+export function frameToElementScale(element: Size, frame: Size): number {
+  if (element.width <= 0 || element.height <= 0 || frame.width <= 0 || frame.height <= 0) {
+    return 0
+  }
+  return Math.min(element.width / frame.width, element.height / frame.height)
+}
+
+/**
+ * The inverse of {@link pointerToFramePoint}: frame pixel to a position relative
+ * to the element's top-left corner, letterbox offset included.
+ *
+ * Used to draw detections back onto the video. Note the frame size passed here
+ * is the *analysis* frame the detector worked in, which is smaller than the clip
+ * — the scale factor absorbs that difference, so no separate rescale is needed.
+ */
+export function framePointToElement(point: Point, element: Size, frame: Size): Point | null {
+  const scale = frameToElementScale(element, frame)
+  if (scale === 0) return null
+  return {
+    x: point.x * scale + (element.width - frame.width * scale) / 2,
+    y: point.y * scale + (element.height - frame.height * scale) / 2,
+  }
+}

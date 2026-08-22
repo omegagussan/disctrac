@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pointerToFramePoint } from './pointer.ts'
+import { frameToElementScale, framePointToElement, pointerToFramePoint } from './pointer.ts'
 
 const HD = { width: 1280, height: 720 }
 
@@ -69,5 +69,65 @@ describe('pointerToFramePoint', () => {
     ['a clip with no dimensions', HD, { width: 0, height: 0 }],
   ])('returns null for %s', (_label, element, frame) => {
     expect(pointerToFramePoint({ x: 10, y: 10 }, element, frame)).toBeNull()
+  })
+})
+
+describe('framePointToElement', () => {
+  it('is the inverse of pointerToFramePoint', () => {
+    const element = { width: 1600, height: 720 }
+    for (const point of [
+      { x: 0, y: 0 },
+      { x: 640, y: 360 },
+      { x: 1279, y: 719 },
+      { x: 12, y: 700 },
+    ]) {
+      const onElement = framePointToElement(point, element, HD)!
+      const backToFrame = pointerToFramePoint(onElement, element, HD)!
+      expect(backToFrame.x).toBeCloseTo(point.x, 9)
+      expect(backToFrame.y).toBeCloseTo(point.y, 9)
+    }
+  })
+
+  it('offsets by the letterbox bar rather than the element edge', () => {
+    // 1280x900 box holding a 16:9 clip: 90px bars top and bottom.
+    const element = { width: 1280, height: 900 }
+    expect(framePointToElement({ x: 0, y: 0 }, element, HD)).toEqual({ x: 0, y: 90 })
+  })
+
+  it('maps the frame centre to the picture centre', () => {
+    const element = { width: 1600, height: 720 }
+    expect(framePointToElement({ x: 640, y: 360 }, element, HD)).toEqual({ x: 800, y: 360 })
+  })
+
+  /**
+   * The detector works on a downscaled frame, so the mapping has to absorb that
+   * difference too rather than assuming frame size equals clip size.
+   */
+  it('scales up from a smaller analysis frame', () => {
+    const analysis = { width: 640, height: 360 }
+    const element = { width: 1280, height: 720 }
+    expect(framePointToElement({ x: 320, y: 180 }, element, analysis)).toEqual({ x: 640, y: 360 })
+  })
+
+  it.each([
+    ['an unmeasured element', { width: 0, height: 0 }, HD],
+    ['a frame with no dimensions', HD, { width: 0, height: 0 }],
+  ])('returns null for %s', (_label, element, frame) => {
+    expect(framePointToElement({ x: 1, y: 1 }, element, frame)).toBeNull()
+  })
+})
+
+describe('frameToElementScale', () => {
+  it('reports the factor a radius must be multiplied by', () => {
+    expect(frameToElementScale({ width: 1280, height: 720 }, { width: 640, height: 360 })).toBe(2)
+  })
+
+  it('is limited by whichever axis is tighter', () => {
+    // A very wide box is still constrained by its height.
+    expect(frameToElementScale({ width: 4000, height: 720 }, HD)).toBeCloseTo(1, 9)
+  })
+
+  it('is zero when either side has no size', () => {
+    expect(frameToElementScale({ width: 0, height: 0 }, HD)).toBe(0)
   })
 })
