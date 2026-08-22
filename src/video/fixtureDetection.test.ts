@@ -11,6 +11,9 @@ import type { TruthFrame } from './fixtureFrames.ts'
 import { modelToHsvBounds } from './hsvBounds.ts'
 import { HSV_METRIC } from './metric.ts'
 import type { OpenCv } from './opencv.ts'
+import type { Trace, TracePoint } from '../cv-protocol.ts'
+import { renderTrace } from './renderTrace.ts'
+import { createTraceRecorder } from './traceRecorder.ts'
 import { createTracker } from './tracker.ts'
 
 /**
@@ -32,6 +35,9 @@ const frameFor = (frame: number): FramePixels =>
 
 /** Comfortably wider than the annotation's stated precision. */
 const TOLERANCE_PX = 15
+
+/** How far the filtered estimate may sit from truth, in analysis-frame pixels. */
+const TRACK_TOLERANCE_PX = 25
 
 const flightFrames = truth.frames.filter((entry) => entry.phase === 'flight')
 const inHandFrames = truth.frames.filter((entry) => entry.phase === 'in-hand')
@@ -121,10 +127,12 @@ describe('detecting the disc in real footage', () => {
    * so the biggest match is never the disc. Seeding from the point the user
    * clicked removes the guess, and from there proximity carries the track.
    */
-  it('follows the disc when the track is seeded from the click', () => {
+  const timestampFor = (frame: number) => (frame * 1001 * 1e6) / 30000
+
+  /** Runs the real pipeline over the flight window and returns the trace. */
+  function trackFlight(): Trace {
     const window = truth.flightWindow
     const dt = 1001 / 30000
-    const timestampFor = (frame: number) => (frame * 1001 * 1e6) / 30000
     const seedFrame = flightFrames[0]
 
     const tracker = createTracker({
@@ -140,25 +148,118 @@ describe('detecting the disc in real footage', () => {
       },
     })
 
-    // Every frame of the window is fed, as the app would; scoring happens only
-    // on the frames that were annotated. Sampling every fourth frame for the
-    // tracker itself would be unfair to it — the disc moves ~100px in that time,
+    // Every frame of the window is fed, as the app would. Sampling every fourth
+    // frame would be unfair to the filter — the disc moves ~100px in that time,
     // so its first prediction would be a hundred pixels out.
-    const annotated = new Map(flightFrames.map((entry) => [entry.frame, entry]))
-    const errors: string[] = []
+    const points: TracePoint[] = []
     for (let frame = window.startFrame; frame <= window.endFrame; frame += 1) {
       const { candidates } = detector.detect(frameFor(frame), ranges)
       const point = tracker.process(frame, timestampFor(frame), candidates)
+      points.push({
+        frameIndex: point.frameIndex,
+        timestampUs: point.timestampUs,
+        measured: point.measured,
+        filtered: point.filtered,
+        radius: point.radius,
+        occluded: point.occluded,
+        gated: point.gated,
+        lost: point.lost,
+      })
+    }
 
-      const entry = annotated.get(frame)
-      if (!entry) continue
+    return {
+      points,
+      analysisWidth: truth.frameWidth,
+      analysisHeight: truth.frameHeight,
+      sourceWidth: 1280,
+      sourceHeight: 720,
+      dt,
+      timings: { frames: points.length, readbackMs: 0, detectMs: 0, trackMs: 0, totalMs: 0 },
+    }
+  }
+
+  it('follows the disc when the track is seeded from the click', () => {
+    const trace = trackFlight()
+    const byFrame = new Map(trace.points.map((point) => [point.frameIndex, point]))
+
+    const errors: string[] = []
+    for (const entry of flightFrames) {
+      const point = byFrame.get(entry.frame)!
       const distance = Math.hypot(point.filtered.x - entry.disc.x, point.filtered.y - entry.disc.y)
-      if (distance > 25) {
-        errors.push(`frame ${frame}: filtered ${distance.toFixed(0)}px from truth`)
+      if (distance > TRACK_TOLERANCE_PX) {
+        errors.push(`frame ${entry.frame}: filtered ${distance.toFixed(0)}px from truth`)
       }
     }
 
     expect(errors, `drifted on ${errors.length} frames:\n${errors.join('\n')}`).toEqual([])
+  })
+
+  /**
+   * The last unverified link. Detection and tracking were measured against the
+   * annotations, but whether the right thing reaches the screen was not — and
+   * two of the three bugs in this feature lived in the drawing, not the maths.
+   *
+   * This runs the real pipeline, renders through the same code the component
+   * uses, rasterises what was drawn, and checks that painted pixels actually sit
+   * on the disc.
+   */
+  it('draws the path over the disc, at twice the analysis scale', () => {
+    const trace = trackFlight()
+    // Same aspect ratio as the analysis frame, at 2x — so a frame coordinate of
+    // (x, y) must be painted at (2x, 2y).
+    const element = { width: truth.frameWidth * 2, height: truth.frameHeight * 2 }
+
+    const byFrame = new Map(trace.points.map((point) => [point.frameIndex, point]))
+    // Two tolerances compose here: the track may sit TRACK_TOLERANCE_PX from
+    // truth, and the element is twice the analysis frame. Demanding tighter than
+    // that would be asking the drawing to be more accurate than what it draws.
+    const allowed = TRACK_TOLERANCE_PX * 2
+
+    const unpainted: string[] = []
+    const misdrawn: string[] = []
+    for (const entry of flightFrames) {
+      const recorder = createTraceRecorder()
+      renderTrace(recorder, {
+        trace,
+        element,
+        currentTimeUs: timestampFor(entry.frame),
+        showMarkers: true,
+      })
+
+      // End to end: paint actually lands on the disc.
+      const expected = { x: entry.disc.x * 2, y: entry.disc.y * 2 }
+      if (!recorder.paintedNear(expected, allowed, element)) {
+        unpainted.push(
+          `frame ${entry.frame}: nothing painted within ${allowed}px of (${expected.x.toFixed(0)}, ${expected.y.toFixed(0)}); nearest line ${recorder.distanceToPath(expected).toFixed(0)}px away`,
+        )
+      }
+
+      // Drawing fidelity on its own: the line must pass through the position the
+      // tracker reported, scaled. This is what catches a projection or timing
+      // error without blaming the tracker for it.
+      const tracked = byFrame.get(entry.frame)!
+      const projected = { x: tracked.filtered.x * 2, y: tracked.filtered.y * 2 }
+      const offBy = recorder.distanceToPath(projected)
+      if (offBy > 3) {
+        misdrawn.push(`frame ${entry.frame}: line ${offBy.toFixed(1)}px from the tracked position`)
+      }
+    }
+
+    expect(unpainted, `not drawn on the disc for ${unpainted.length} frames:\n${unpainted.join('\n')}`)
+      .toEqual([])
+    expect(misdrawn, `drawn away from the track on ${misdrawn.length} frames:\n${misdrawn.join('\n')}`)
+      .toEqual([])
+  })
+
+  it('never draws a line across the frame', () => {
+    const trace = trackFlight()
+    const element = { width: truth.frameWidth * 2, height: truth.frameHeight * 2 }
+    const recorder = createTraceRecorder()
+    renderTrace(recorder, { trace, element, currentTimeUs: 0, showMarkers: false })
+
+    // Between consecutive frames the disc moves tens of pixels, not hundreds.
+    // A piece longer than this means a hole was bridged.
+    expect(recorder.longestPiece()).toBeLessThan(150)
   })
 
   /** A disc is a small object. Anything covering much of the frame is not one. */
