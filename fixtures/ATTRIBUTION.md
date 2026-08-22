@@ -59,6 +59,17 @@ for spec in "2 12 throw-01-wooded-tee" "32 11 throw-02-field-release" "43 12 thr
 done
 ```
 
+## Extracted frames
+
+`fixtures/frames/throw-02/` holds single frames pulled from `throw-02-field-release.mp4` and
+scaled to 640x360, committed so the detection tests can run against real pixels without needing
+ffmpeg at test time. They are **further derivatives of the same CC BY-SA 2.0 source** and carry
+exactly the same obligations as the clips above.
+
+`fixtures/truth/throw-02-field-release.json` records where the disc actually is in those frames,
+annotated by hand. The annotation is our own work and describes the footage rather than
+reproducing it; the frames it points at remain CC BY-SA 2.0.
+
 ## Adding new fixtures
 
 Only add footage that is yours or is licensed for redistribution — this repository is

@@ -1,0 +1,114 @@
+{
+  "clip": "fixtures/video/throw-02-field-release.mp4",
+  "frameDirectory": "fixtures/frames/throw-02",
+  "frameWidth": 640,
+  "frameHeight": 360,
+  "sourceWidth": 1280,
+  "sourceHeight": 720,
+  "annotation": {
+    "method": "Manual. Frames were extracted, cropped around the disc and magnified, and the centre read off by eye; positions were then converted back into the 640x360 frame space.",
+    "coordinateSpace": "the extracted 640x360 frames, origin top-left",
+    "precisionPx": 6
+  },
+  "notes": [
+    "The disc is in hand for roughly the first 225 frames. It is only airborne between about frame 228 and frame 270.",
+    "The player's shirt is bright yellow and the disc is orange; the background is dry yellow grass. Hue alone separates them poorly, which is what makes this clip a useful test rather than an easy one.",
+    "The camera pans right hard just after release, so the disc's horizontal motion in frame is dominated by camera motion rather than by the throw. Its vertical motion still shows a real arc: it rises then falls.",
+    "There is a scene cut at roughly frame 305 to an unrelated shot. Nothing should be tracked across it."
+  ],
+  "frames": [
+    {
+      "frame": 150,
+      "phase": "in-hand",
+      "disc": {
+        "x": 216.5,
+        "y": 235.0
+      }
+    },
+    {
+      "frame": 210,
+      "phase": "in-hand",
+      "disc": {
+        "x": 497.0,
+        "y": 250.0
+      }
+    },
+    {
+      "frame": 234,
+      "phase": "flight",
+      "disc": {
+        "x": 381.5,
+        "y": 173.5
+      }
+    },
+    {
+      "frame": 238,
+      "phase": "flight",
+      "disc": {
+        "x": 279.0,
+        "y": 140.5
+      }
+    },
+    {
+      "frame": 242,
+      "phase": "flight",
+      "disc": {
+        "x": 279.5,
+        "y": 131.5
+      }
+    },
+    {
+      "frame": 246,
+      "phase": "flight",
+      "disc": {
+        "x": 325.0,
+        "y": 124.5
+      }
+    },
+    {
+      "frame": 250,
+      "phase": "flight",
+      "disc": {
+        "x": 364.0,
+        "y": 116.0
+      }
+    },
+    {
+      "frame": 254,
+      "phase": "flight",
+      "disc": {
+        "x": 396.5,
+        "y": 115.0
+      }
+    },
+    {
+      "frame": 258,
+      "phase": "flight",
+      "disc": {
+        "x": 415.5,
+        "y": 128.5
+      }
+    },
+    {
+      "frame": 262,
+      "phase": "flight",
+      "disc": {
+        "x": 430.0,
+        "y": 138.0
+      }
+    },
+    {
+      "frame": 266,
+      "phase": "flight",
+      "disc": {
+        "x": 429.5,
+        "y": 151.5
+      }
+    }
+  ],
+  "flightWindow": {
+    "startFrame": 234,
+    "endFrame": 266,
+    "note": "Every frame in this range is committed, so tracking can be exercised at the real frame rate. Only every fourth frame is annotated; the tracker runs over all of them and is scored on the annotated ones."
+  }
+}

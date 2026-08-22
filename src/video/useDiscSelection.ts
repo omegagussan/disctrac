@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { buildDiscColorModel, cropMaskedRegion } from './discModel.ts'
 import type { CroppedRegion, DiscColorModel } from './discModel.ts'
-import { floodFillMask, unionMasks } from './floodFill.ts'
+import { floodFillMask, maskCentroid, unionMasks } from './floodFill.ts'
 import type { FramePixels, Mask } from './floodFill.ts'
 import type { ColorMetric, MetricName } from './metric.ts'
 import { HSV_METRIC, metricByName } from './metric.ts'
@@ -40,6 +40,15 @@ export interface DiscSelection {
   /** How colour similarity is measured. Defaults to HSV for shade resilience. */
   metric: ColorMetric
   seedCount: number
+  /** The points clicked, in captured-frame pixels. */
+  seeds: Point[]
+  /**
+   * Centre of mass of the selection, in captured-frame pixels — where the disc
+   * actually is, rather than where the click roughly landed.
+   */
+  discCentre: Point | null
+  /** Playback position of the captured frame, in microseconds. */
+  capturedAtUs: number | null
   /** Re-read the frame from the video — call when the displayed frame changes. */
   refreshFrame(): void
   /** Sample at a pointer position relative to the video element's top-left. */
@@ -67,6 +76,8 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
   const [tolerance, setToleranceState] = useState(HSV_METRIC.defaultTolerance)
   const [result, setResult] = useState<SelectionResult | null>(null)
   const [frameSize, setFrameSize] = useState<Size | null>(null)
+  const [capturedAtUs, setCapturedAtUs] = useState<number | null>(null)
+  const capturedAtRef = useRef<number | null>(null)
 
   const recompute = useCallback(
     (nextSeeds: Point[], nextTolerance: number, nextMetric: ColorMetric) => {
@@ -102,7 +113,26 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
     if (!frame) return
     frameRef.current = frame
     setFrameSize({ width: frame.width, height: frame.height })
-    // The same seeds still point at the same places on the new frame.
+
+    const nowUs = video.currentTime * 1e6
+    const movedToAnotherFrame =
+      capturedAtRef.current !== null && Math.abs(capturedAtRef.current - nowUs) > 1
+    capturedAtRef.current = nowUs
+    // Recorded so an analysis can seed its track at the moment the disc was
+    // actually identified, rather than guessing on the first frame.
+    setCapturedAtUs(nowUs)
+
+    // A selection describes one frame: its colours, its position and its
+    // timestamp all come from the same picture. Keeping the clicks when the
+    // frame changes pairs an old position with a new timestamp, and the tracker
+    // cannot tell — it seeds where the disc *was*, misses immediately, and dies.
+    if (movedToAnotherFrame && seedsRef.current.length > 0) {
+      seedsRef.current = []
+      setSeeds([])
+      setResult(null)
+      return
+    }
+
     recompute(seedsRef.current, tolerance, metric)
   }, [metric, recompute, tolerance, videoRef])
 
@@ -157,6 +187,9 @@ export function useDiscSelection(videoRef: RefObject<HTMLVideoElement | null>): 
     tolerance,
     metric,
     seedCount: seeds.length,
+    seeds,
+    discCentre: result ? maskCentroid(result.mask) : null,
+    capturedAtUs,
     refreshFrame,
     sampleAt,
     setTolerance,

@@ -156,3 +156,22 @@ export function mergeBounds(first: Bounds | null, second: Bounds | null): Bounds
     maxY: Math.max(first.maxY, second.maxY),
   }
 }
+
+/**
+ * Centre of mass of a selection.
+ *
+ * A better seed than the raw click: the user aims roughly at the disc, while
+ * this is where the pixels that matched actually are.
+ */
+export function maskCentroid(mask: Mask): { x: number; y: number } | null {
+  if (mask.pixelCount === 0) return null
+  let sumX = 0
+  let sumY = 0
+  for (let index = 0; index < mask.data.length; index += 1) {
+    if (mask.data[index] !== 1) continue
+    const x = index % mask.width
+    sumX += x
+    sumY += (index - x) / mask.width
+  }
+  return { x: sumX / mask.pixelCount, y: sumY / mask.pixelCount }
+}

@@ -1,3 +1,5 @@
+import { srgbToOklab } from './color.ts'
+import type { ColorMode } from './discModel.ts'
 import type { FramePixels } from './floodFill.ts'
 
 /**
@@ -26,3 +28,15 @@ export const WHITE: [number, number, number] = [255, 255, 255]
 export const RED: [number, number, number] = [255, 0, 0]
 export const GRASS: [number, number, number] = [110, 124, 62]
 export const ORANGE: [number, number, number] = [230, 120, 30]
+
+/** A colour mode standing for a solid sRGB colour. Test-only. */
+export function modeFromRgb(
+  [r, g, b]: [number, number, number],
+  weight = 1,
+  spread = 0,
+): ColorMode {
+  return { lab: srgbToOklab(r, g, b), weight, spread }
+}
+
+export const CYAN: [number, number, number] = [0, 255, 255]
+export const MID_GREY: [number, number, number] = [128, 128, 128]
