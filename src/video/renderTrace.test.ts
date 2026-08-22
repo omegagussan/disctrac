@@ -23,7 +23,7 @@ const traceOf = (points: TracePoint[]): Trace => ({
   sourceWidth: 1280,
   sourceHeight: 720,
   dt: 1001 / 30000,
-  timings: { frames: points.length, readbackMs: 0, detectMs: 0, trackMs: 0, totalMs: 0 },
+  timings: { frames: points.length, readbackMs: 0, detectMs: 0, motionMs: 0, trackMs: 0, totalMs: 0 },
 })
 
 /** Same aspect ratio as the analysis frame, at twice the scale. */
