@@ -98,10 +98,13 @@ with, and several are known to be wrong in ways that are currently acceptable.
 7. **Measurement error is zero-mean and roughly isotropic.** Motion blur violates this — a blurred
    disc's centroid is biased along the direction of travel — but the bias is small relative to the
    blob and is not modelled.
-8. **Units are isotropic.** The filter works in pixels of the analysis frame, and normalises by
-   frame *width* on both axes only at the protocol boundary. Normalising each axis by its own
-   extent would make a pixel of vertical motion a different quantity from a pixel of horizontal
-   motion, quietly distorting the velocity model on any non-square frame.
+8. **Units are isotropic.** The filter works in pixels of the analysis frame, and those pixels
+   are what crosses the protocol boundary — the analysis frame size is reported alongside, and the
+   overlay projects with the same letterbox-aware helper it uses for clicks. An earlier draft
+   normalised by frame *width* on both axes instead; that is equally isotropic, but it adds a
+   convention to misread for no gain. What matters is that both axes share one scale: normalising
+   each axis by its own extent would make a pixel of vertical motion a different quantity from a
+   pixel of horizontal motion, quietly distorting the velocity model on any non-square frame.
 
 ## Strategy
 
