@@ -120,10 +120,28 @@ export function createTracker(options: TrackerOptions = {}): Tracker {
 
   return {
     process(frameIndex, timestampUs, candidates) {
-      // A track that has been lost is not worth extrapolating from; the next
-      // candidate starts a fresh one rather than being dragged toward a stale
-      // position the disc left long ago.
+      // A track that has been lost is not worth extrapolating from. Without a
+      // seed the next candidate starts a fresh one; *with* a seed it must not,
+      // because re-acquisition falls back to the largest blob and that is never
+      // the disc — it is the shirt or a patch of sunlit grass. Re-acquiring
+      // would quietly reintroduce the bug the seed exists to prevent, partway
+      // through the clip.
       if (filter.isLost) {
+        if (seed) {
+          const point: TrackPoint = {
+            frameIndex,
+            timestampUs,
+            measured: null,
+            filtered: { x: 0, y: 0 },
+            radius: null,
+            occluded: true,
+            gated: false,
+            mahalanobis: 0,
+            lost: true,
+          }
+          points.push(point)
+          return point
+        }
         filter = createKalmanFilter(kalmanConfig)
       }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { Trace, TracePoint } from '../cv-protocol.ts'
 import { framePointToElement, frameToElementScale } from '../video/pointer.ts'
+import { pointAt, toSegments } from '../video/trace.ts'
 
 export interface TraceOverlayProps {
   trace: Trace | null
@@ -48,10 +49,13 @@ export function TraceOverlay({ trace, currentTimeUs, showMarkers }: TraceOverlay
     // The analysis frame is smaller than the clip; the projection absorbs that.
     const frame = { width: trace.analysisWidth, height: trace.analysisHeight }
 
-    const drawable = trace.points.filter((point) => !point.lost)
-    if (drawable.length === 0) return
+    // Split at the holes rather than drawing through them: the track has gaps
+    // before the disc is identified and after it is lost, and joining across one
+    // draws a straight line between two unrelated positions.
+    const segments = toSegments(trace.points)
+    if (segments.length === 0) return
 
-    const strokePath = (points: TracePoint[], colour: string, lineWidth: number) => {
+    const strokePoints = (points: TracePoint[], colour: string, lineWidth: number) => {
       if (points.length < 2) return
       context.beginPath()
       points.forEach((point, index) => {
@@ -67,19 +71,17 @@ export function TraceOverlay({ trace, currentTimeUs, showMarkers }: TraceOverlay
       context.stroke()
     }
 
-    strokePath(drawable, PATH_AHEAD, 2)
-    strokePath(
-      drawable.filter((point) => point.timestampUs <= currentTimeUs),
-      PATH_TRAVELLED,
-      3,
-    )
+    for (const segment of segments) {
+      strokePoints(segment, PATH_AHEAD, 2)
+      strokePoints(
+        segment.filter((point) => point.timestampUs <= currentTimeUs),
+        PATH_TRAVELLED,
+        3,
+      )
+    }
 
-    // Whichever frame is closest to where playback actually is.
-    const current = drawable.reduce((best, point) =>
-      Math.abs(point.timestampUs - currentTimeUs) < Math.abs(best.timestampUs - currentTimeUs)
-        ? point
-        : best,
-    )
+    const current = pointAt(segments, currentTimeUs)
+    if (!current) return
 
     const dot = (at: { x: number; y: number }, colour: string, radius: number) => {
       context.beginPath()

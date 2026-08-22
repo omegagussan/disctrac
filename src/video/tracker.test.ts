@@ -189,3 +189,58 @@ describe('drawablePoints', () => {
     expect(drawablePoints(tracker.points)).toHaveLength(1)
   })
 })
+
+describe('a seeded track', () => {
+  const seededTracker = () =>
+    createTracker({
+      kalman: { drag: 1, measurementNoise: 1, velocityNoise: 1, maxConsecutiveMisses: 3 },
+      seed: { timestampUs: 0, x: 100, y: 200 },
+    })
+
+  it('ignores frames before the disc was identified', () => {
+    const tracker = createTracker({
+      seed: { timestampUs: 1_000_000, x: 100, y: 200 },
+    })
+    const early = tracker.process(0, 0, [candidate(500, 500, 9000)])
+
+    expect(early.lost).toBe(true)
+    expect(early.measured).toBeNull()
+  })
+
+  it('starts at the seed rather than at the biggest blob', () => {
+    const tracker = seededTracker()
+    // A far larger candidate elsewhere must not win the first frame.
+    const first = tracker.process(0, 0, [candidate(600, 400, 9000), candidate(101, 200, 30)])
+
+    expect(first.lost).toBe(false)
+    // It settles a fraction of a pixel toward the nearby candidate, which is the
+    // filter doing its job; what matters is that it is at the seed and nowhere
+    // near the far larger blob.
+    expect(Math.hypot(first.filtered.x - 100, first.filtered.y - 200)).toBeLessThan(3)
+    expect(Math.hypot(first.filtered.x - 600, first.filtered.y - 400)).toBeGreaterThan(100)
+  })
+
+  /**
+   * Re-acquisition falls back to the largest blob, and on real footage that is
+   * never the disc. A seeded track that dies must stay dead rather than quietly
+   * reintroducing the bug the seed exists to prevent.
+   */
+  it('stays lost instead of re-acquiring on a distractor', () => {
+    const tracker = seededTracker()
+    tracker.process(0, 0, [candidate(100, 200)])
+    for (let frame = 1; frame <= 6; frame += 1) tracker.process(frame, frame * 33_367, [])
+
+    const distractor = tracker.process(7, 7 * 33_367, [candidate(600, 400, 9000)])
+    expect(distractor.lost).toBe(true)
+    expect(distractor.measured).toBeNull()
+  })
+
+  it('still re-acquires when no seed was given', () => {
+    const tracker = createTracker({ kalman: { maxConsecutiveMisses: 3 } })
+    tracker.process(0, 0, [candidate(100, 200)])
+    for (let frame = 1; frame <= 6; frame += 1) tracker.process(frame, frame * 33_367, [])
+
+    const reacquired = tracker.process(7, 7 * 33_367, [candidate(600, 400, 9000)])
+    expect(reacquired.lost).toBe(false)
+  })
+})
