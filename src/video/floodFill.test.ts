@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_TOLERANCE, emptyMask, floodFillMask, mergeBounds, unionMasks } from './floodFill.ts'
+import {
+  DEFAULT_TOLERANCE,
+  emptyMask,
+  floodFillMask,
+  maskCentroid,
+  mergeBounds,
+  unionMasks,
+} from './floodFill.ts'
 import { HSV_METRIC, OKLAB_METRIC } from './metric.ts'
 import { GRASS, ORANGE, RED, WHITE, makeFrame } from './testing.ts'
 
@@ -177,5 +184,33 @@ describe('metric choice on a half-shaded disc', () => {
     const mask = floodFillMask(halfShadedDisc(), 3, 4, metric.defaultTolerance, metric)
     // Corner pixel is grass, far outside the disc.
     expect(mask.data[0]).toBe(0)
+  })
+})
+
+describe('maskCentroid', () => {
+  it('finds the centre of a square block', () => {
+    // The 3x3 block spans 1..3 on both axes, so its centre is (2, 2).
+    expect(maskCentroid(floodFillMask(blockFrame(), 2, 2))).toEqual({ x: 2, y: 2 })
+  })
+
+  it('is pulled toward the heavier side of an uneven shape', () => {
+    // An L of five pixels: (0,0) (0,1) (0,2) (1,2) (2,2).
+    // Mean x = 3/5, mean y = 7/5.
+    const frame = makeFrame(4, 4, (x, y) => {
+      const inShape = (x === 0 && y <= 2) || (y === 2 && x <= 2)
+      return inShape ? RED : WHITE
+    })
+    const centroid = maskCentroid(floodFillMask(frame, 0, 0))!
+    expect(centroid.x).toBeCloseTo(0.6, 5)
+    expect(centroid.y).toBeCloseTo(1.4, 5)
+  })
+
+  it('does not depend on where inside the shape the fill started', () => {
+    const frame = blockFrame()
+    expect(maskCentroid(floodFillMask(frame, 1, 1))).toEqual(maskCentroid(floodFillMask(frame, 3, 3)))
+  })
+
+  it('returns null when nothing is selected', () => {
+    expect(maskCentroid(emptyMask(5, 5))).toBeNull()
   })
 })

@@ -129,15 +129,18 @@ export function VideoPlayer({
       // The worker decodes the clip itself, so it needs the bytes. A fresh fetch
       // each run is deliberate: the buffer is transferred and cannot be reused.
       const clip = await (await fetch(src)).arrayBuffer()
-      // The click already located the disc; passing it stops the tracker having
-      // to guess on frame one, where the largest matching blob is a shirt.
-      const firstSeed = selection.seeds[0]
+      // The selection already located the disc; passing it stops the tracker
+      // having to guess on frame one, where the largest matching blob is a
+      // shirt. The centre of the selected pixels is used rather than the raw
+      // click, and it is paired with the timestamp of the very frame it was
+      // measured on.
+      const centre = selection.discCentre
       const seed =
-        firstSeed && selection.frameSize && selection.capturedAtUs !== null
+        centre && selection.frameSize && selection.capturedAtUs !== null
           ? {
               timestampUs: selection.capturedAtUs,
-              x: firstSeed.x / selection.frameSize.width,
-              y: firstSeed.y / selection.frameSize.height,
+              x: centre.x / selection.frameSize.width,
+              y: centre.y / selection.frameSize.height,
             }
           : undefined
 
@@ -152,7 +155,14 @@ export function VideoPlayer({
     } finally {
       setIsAnalysing(false)
     }
-  }, [selection.capturedAtUs, selection.frameSize, selection.result, selection.seeds, selection.tolerance, src])
+  }, [
+    selection.capturedAtUs,
+    selection.discCentre,
+    selection.frameSize,
+    selection.result,
+    selection.tolerance,
+    src,
+  ])
 
   // A trace belongs to one clip; keeping it across a change would draw the old
   // flight over the new video.
