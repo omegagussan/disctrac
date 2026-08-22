@@ -226,7 +226,8 @@ describe('detecting the disc in real footage', () => {
         showMarkers: true,
       })
 
-      // End to end: paint actually lands on the disc.
+      // End to end, with smoothing on as the app has it. This is also what
+      // proves smoothing does not pull the line off the disc.
       const expected = { x: entry.disc.x * 2, y: entry.disc.y * 2 }
       if (!recorder.paintedNear(expected, allowed, element)) {
         unpainted.push(
@@ -234,12 +235,20 @@ describe('detecting the disc in real footage', () => {
         )
       }
 
-      // Drawing fidelity on its own: the line must pass through the position the
-      // tracker reported, scaled. This is what catches a projection or timing
-      // error without blaming the tracker for it.
+      // Drawing fidelity on its own, with smoothing off: the line must pass
+      // through exactly what the tracker reported, scaled. This isolates a
+      // projection or timing error from both the tracker and the smoother.
+      const raw = createTraceRecorder()
+      renderTrace(raw, {
+        trace,
+        element,
+        currentTimeUs: timestampFor(entry.frame),
+        showMarkers: true,
+        smoothing: null,
+      })
       const tracked = byFrame.get(entry.frame)!
       const projected = { x: tracked.filtered.x * 2, y: tracked.filtered.y * 2 }
-      const offBy = recorder.distanceToPath(projected)
+      const offBy = raw.distanceToPath(projected)
       if (offBy > 3) {
         misdrawn.push(`frame ${entry.frame}: line ${offBy.toFixed(1)}px from the tracked position`)
       }

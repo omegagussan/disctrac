@@ -1,6 +1,8 @@
-import type { Trace, TracePoint } from '../cv-protocol.ts'
-import type { Size } from './pointer.ts'
+import type { Trace } from '../cv-protocol.ts'
+import type { Point, Size } from './pointer.ts'
 import { framePointToElement, frameToElementScale } from './pointer.ts'
+import type { SmoothingOptions } from './smoothing.ts'
+import { DEFAULT_SMOOTHING, smoothPath } from './smoothing.ts'
 import { pointAt, toSegments } from './trace.ts'
 
 /**
@@ -50,6 +52,11 @@ export interface RenderTraceOptions {
   currentTimeUs: number
   showMarkers: boolean
   colours?: TraceColours
+  /**
+   * Smoothing applied before drawing. `null` draws the tracker's raw output,
+   * which is useful when debugging the tracker itself.
+   */
+  smoothing?: SmoothingOptions | null
 }
 
 export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptions): void {
@@ -68,12 +75,32 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
   const segments = toSegments(trace.points)
   if (segments.length === 0) return
 
-  const strokePoints = (points: TracePoint[], colour: string, lineWidth: number) => {
-    if (points.length < 2) return
+  // A disc cannot jink: a kink in the tracked path is centroid noise, not
+  // flight. Smoothing before drawing removes movement no disc could make, while
+  // the underlying trace keeps its raw values for anything that wants them.
+  const smoothing = options.smoothing === null ? null : (options.smoothing ?? DEFAULT_SMOOTHING)
+
+  const smoothedByFrame = new Map<number, Point>()
+  const drawnSegments = segments.map((segment) => {
+    const positions = segment.map((point) => point.filtered)
+    const smoothed = smoothing ? smoothPath(positions, smoothing) : positions
+    segment.forEach((point, index) => smoothedByFrame.set(point.frameIndex, smoothed[index]))
+    return segment.map((point, index) => ({
+      position: smoothed[index],
+      timestampUs: point.timestampUs,
+    }))
+  })
+
+  const strokePositions = (
+    samples: { position: Point }[],
+    colour: string,
+    lineWidth: number,
+  ) => {
+    if (samples.length < 2) return
     target.beginPath()
     let started = false
-    for (const point of points) {
-      const at = framePointToElement(point.filtered, element, frame)
+    for (const sample of samples) {
+      const at = framePointToElement(sample.position, element, frame)
       if (!at) continue
       if (started) target.lineTo(at.x, at.y)
       else {
@@ -88,10 +115,10 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
     target.stroke()
   }
 
-  for (const segment of segments) {
-    strokePoints(segment, colours.ahead, 2)
-    strokePoints(
-      segment.filter((point) => point.timestampUs <= currentTimeUs),
+  for (const drawn of drawnSegments) {
+    strokePositions(drawn, colours.ahead, 2)
+    strokePositions(
+      drawn.filter((sample) => sample.timestampUs <= currentTimeUs),
       colours.travelled,
       3,
     )
@@ -108,7 +135,11 @@ export function renderTrace(target: TraceRenderTarget, options: RenderTraceOptio
   }
 
   const scale = frameToElementScale(element, frame)
-  const filteredAt = framePointToElement(current.filtered, element, frame)
+  const filteredAt = framePointToElement(
+    smoothedByFrame.get(current.frameIndex) ?? current.filtered,
+    element,
+    frame,
+  )
 
   if (filteredAt) {
     // A ring at the measured radius makes it obvious when the detector has
