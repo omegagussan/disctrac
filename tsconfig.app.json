@@ -4,12 +4,16 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client", "@webgpu/types", "dom-webcodecs"],
+    "types": ["vite/client", "@webgpu/types", "dom-webcodecs", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    /* OpenCV.js ships an emscripten CommonJS build whose exports object has a
+       `then` method; importing it as a namespace makes the loader treat the
+       module itself as a thenable and fail. A default import avoids that. */
+    "esModuleInterop": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",

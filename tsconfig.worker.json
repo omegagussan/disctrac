@@ -10,6 +10,10 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    /* OpenCV.js ships an emscripten CommonJS build whose exports object has a
+       `then` method; importing it as a namespace makes the loader treat the
+       module itself as a thenable and fail. A default import avoids that. */
+    "esModuleInterop": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
